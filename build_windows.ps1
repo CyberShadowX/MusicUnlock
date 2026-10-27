@@ -65,6 +65,8 @@ try {
         built_at = [DateTimeOffset]::Now.ToString('o')
         source_revision = $SourceRevision
         source_dirty = $SourceDirty
+        application_mode = 'native_desktop_window'
+        renderer = 'EdgeChromium / installed Windows WebView2'
         python = $PythonVersion
         dependencies = @($Dependencies)
         ffmpeg_version = $FFmpegVersion[0]

@@ -92,14 +92,3 @@ def test_launcher_rejects_invalid_ports(port):
     )
     assert result.returncode == 2
     assert "argument --port" in result.stderr
-
-
-def test_browser_failure_keeps_manual_url(monkeypatch, capsys):
-    import windows_launcher
-
-    def unavailable(_url):
-        raise OSError("No browser installed")
-
-    monkeypatch.setattr(windows_launcher.webbrowser, "open", unavailable)
-    windows_launcher.open_browser("http://127.0.0.1:12345")
-    assert "http://127.0.0.1:12345" in capsys.readouterr().out

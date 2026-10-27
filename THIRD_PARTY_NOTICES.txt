@@ -15,6 +15,17 @@ Blinker: https://github.com/pallets-eco/blinker (MIT)
 PyCryptodome: https://www.pycryptodome.org/ (BSD/public-domain components)
 Mutagen: https://mutagen.readthedocs.io/ (GPL-2.0-or-later)
 PyInstaller bootloader: https://pyinstaller.org/ (GPL with distribution exception)
+pywebview: https://pywebview.flowrl.com/ (BSD-3-Clause)
+Python.NET: https://pythonnet.github.io/ (MIT)
+clr-loader: https://github.com/pythonnet/clr-loader (MIT)
+Bottle: https://bottlepy.org/ (MIT)
+proxy-tools: https://github.com/jtushman/proxy-tools (BSD)
+CFFI: https://cffi.readthedocs.io/ (MIT)
+pycparser: https://github.com/eliben/pycparser (BSD)
+typing-extensions: https://github.com/python/typing_extensions (PSF)
+The desktop renderer uses the installed Windows Microsoft WebView2 Runtime.
+Microsoft WebView2 SDK interop/loader files are supplied with pywebview:
+https://learn.microsoft.com/microsoft-edge/webview2/
 
 FFmpeg is a separate executable invoked as a subprocess:
 https://ffmpeg.org/ and https://www.gyan.dev/ffmpeg/builds/

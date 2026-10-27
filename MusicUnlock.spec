@@ -3,6 +3,7 @@
 from importlib.metadata import distribution
 from pathlib import Path
 import sys
+from PyInstaller.utils.hooks import collect_data_files
 
 root = Path(SPECPATH)
 ffmpeg = root / "vendor" / "ffmpeg" / "ffmpeg.exe"
@@ -17,11 +18,14 @@ datas = [
     (str(root / "THIRD_PARTY_NOTICES.txt"), "licenses"),
     (str(root / "build" / "build-info.json"), "."),
 ]
+datas += collect_data_files("webview")
 python_license = Path(sys.base_prefix) / "LICENSE.txt"
 if python_license.is_file():
     datas.append((str(python_license), "licenses/python"))
 for package in ("Flask", "Werkzeug", "Jinja2", "MarkupSafe", "itsdangerous",
-                "click", "blinker", "pycryptodome", "mutagen"):
+                "click", "blinker", "pycryptodome", "mutagen", "pywebview",
+                "pythonnet", "clr_loader", "bottle", "proxy_tools", "cffi",
+                "pycparser", "typing_extensions"):
     installed = distribution(package)
     for entry in installed.files or []:
         if any(word in entry.name.lower() for word in ("license", "copying", "notice")):
@@ -34,11 +38,13 @@ analysis = Analysis(
     pathex=[str(root)],
     binaries=[(str(ffmpeg), "bin")],
     datas=datas,
-    hiddenimports=[],
+    hiddenimports=["webview.platforms.winforms", "webview.platforms.edgechromium",
+                   "clr_loader.netfx", "_cffi_backend"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["pytest", "tkinter"],
+    excludes=["pytest", "tkinter", "webview.platforms.qt", "webview.platforms.gtk",
+              "webview.platforms.cocoa", "webview.platforms.cef", "webview.platforms.android"],
     noarchive=False,
 )
 pyz = PYZ(analysis.pure)
@@ -53,5 +59,5 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=True,
+    console=False,
 )

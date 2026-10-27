@@ -9,7 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
-import re
+import socket
 import shutil
 import subprocess
 import sys
@@ -80,9 +80,13 @@ def upload(base: str, name: str, data: bytes, target: str = "", embed: str = "0"
 @contextmanager
 def launched(exe: Path, directory: Path, label: str, env: dict):
     log = directory / f"{label}.log"
+    with socket.socket() as available:
+        available.bind(("127.0.0.1", 0))
+        port = available.getsockname()[1]
+    base = f"http://127.0.0.1:{port}"
     with log.open("wb") as output:
         process = subprocess.Popen(
-            [str(exe), "--no-browser"], cwd=directory, env=env,
+            [str(exe), "--no-browser", "--port", str(port)], cwd=directory, env=env,
             stdout=output, stderr=subprocess.STDOUT,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
@@ -92,17 +96,15 @@ def launched(exe: Path, directory: Path, label: str, env: dict):
                 content = log.read_text(encoding="utf-8", errors="replace")
                 if process.poll() is not None:
                     raise RuntimeError(f"EXE exited ({process.returncode}): {content}")
-                match = re.search(r"MusicUnlock URL: (http://127\.0\.0\.1:\d+)", content)
-                if match:
-                    base = match.group(1)
-                    try:
-                        health = json.loads(get(f"{base}/api/health"))
-                    except (OSError, ValueError):
-                        pass
-                    else:
-                        assert health["ok"] is True, health
-                        yield base
-                        return
+                try:
+                    with urllib.request.urlopen(f"{base}/api/health", timeout=1) as response:
+                        health = json.load(response)
+                except (OSError, ValueError):
+                    pass
+                else:
+                    assert health["ok"] is True, health
+                    yield base
+                    return
                 time.sleep(0.2)
             raise RuntimeError(f"Timed out starting EXE: {content}")
         finally:

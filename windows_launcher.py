@@ -1,13 +1,17 @@
-"""Windows portable entry point for the existing local browser interface."""
+"""Windowed Windows entry point; the existing UI lives inside a desktop window."""
 from __future__ import annotations
 
 import argparse
+import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+import os
+import sys
 import threading
-import webbrowser
+import uuid
 
-from werkzeug.serving import make_server
+from desktop_runtime import DesktopStartup, LocalService, own_child_processes
 
-from web.server import app
 
 
 def port_number(value: str) -> int:
@@ -20,39 +24,65 @@ def port_number(value: str) -> int:
     return port
 
 
-def open_browser(url: str) -> None:
-    try:
-        if webbrowser.open(url):
-            return
-    except Exception:
-        pass
-    print(f"无法自动打开浏览器，请手动打开：{url}", flush=True)
+def run_desktop(data_dir: Path, port: int = 0) -> int:
+    own_child_processes()
+    import webview
+
+    # Windowed builds have no stderr; route pywebview diagnostics to our file log.
+    logging.getLogger("pywebview").handlers.clear()
+    webview.settings["ALLOW_DOWNLOADS"] = True
+    webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = False
+    profile = data_dir / f"webview-{uuid.uuid4().hex}"
+    with LocalService(port) as service:
+        logging.info("Desktop local service: %s", service.url)
+        window = webview.create_window(
+            "MusicUnlock 音乐格式转换", service.url,
+            width=1120, height=820, min_size=(880, 640),
+            background_color="#090b11", text_select=True,
+        )
+        startup = DesktopStartup(window, lambda: webview.renderer)
+        try:
+            webview.start(func=startup.wait, gui="edgechromium", private_mode=True, storage_path=str(profile))
+        finally:
+            startup.cancel()
+        if startup.error is not None:
+            raise startup.error
+    logging.info("Desktop window closed; local service stopped")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="MusicUnlock 本机音乐格式转换工具")
+    parser = argparse.ArgumentParser(description="MusicUnlock 桌面音乐格式转换工具")
     parser.add_argument("--port", type=port_number, default=0, help="端口，默认自动选择空闲端口")
-    parser.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
+    parser.add_argument("--no-browser", action="store_true", help="高级兼容模式：仅运行本机 API 服务")
     args = parser.parse_args(argv)
 
-    # Bind before opening the browser, so its first request can reach the service.
-    server = make_server("127.0.0.1", args.port, app, threaded=True)
-    url = f"http://127.0.0.1:{server.server_port}"
-    print(f"MusicUnlock URL: {url}", flush=True)
-    print("文件在本机处理。使用期间请保留此窗口；关闭窗口或按 Ctrl+C 退出。", flush=True)
-    browser_timer = None
-    if not args.no_browser:
-        browser_timer = threading.Timer(0.5, open_browser, args=(url,))
-        browser_timer.daemon = True
-        browser_timer.start()
+    root = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+    data_dir = root / "MusicUnlock-data"
+    log_path = data_dir / f"MusicUnlock-{os.getpid()}.log"
     try:
-        server.serve_forever()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(log_path, maxBytes=1024 * 1024, backupCount=2, encoding="utf-8")
+        logging.basicConfig(level=logging.INFO, handlers=[handler], force=True,
+                            format="%(asctime)s %(levelname)s %(message)s")
+        if not args.no_browser:
+            return run_desktop(data_dir, args.port)
+        with LocalService(args.port) as service:
+            logging.info("Service compatibility mode: %s", service.url)
+            if sys.stdout is not None:
+                print(f"MusicUnlock URL: {service.url}", flush=True)
+            threading.Event().wait()
     except KeyboardInterrupt:
-        print("\nMusicUnlock 已退出。", flush=True)
-    finally:
-        if browser_timer is not None:
-            browser_timer.cancel()
-        server.server_close()
+        return 0
+    except Exception as exc:
+        logging.exception("MusicUnlock startup failed")
+        if sys.platform == "win32":
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                None, f"无法启动 MusicUnlock：{exc}\n\n日志位置：{log_path}",
+                "MusicUnlock 启动失败", 0x10,
+            )
+        return 1
     return 0
 
 
