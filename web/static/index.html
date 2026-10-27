@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>music-geshizhuanhuan · 全平台加密音乐格式转换</title>
+<title>MusicUnlock · 全平台加密音乐格式转换</title>
+<link rel="stylesheet" href="/static/settings.css">
 <style>
   :root {
     --bg: #07090f;
@@ -213,11 +214,46 @@
       <svg viewBox="0 0 24 24" fill="none"><path d="M9 18V6l10-2v11" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.5" cy="18" r="2.5" fill="#fff"/><circle cx="16.5" cy="15" r="2.5" fill="#fff"/></svg>
     </div>
     <div class="brand">
-      <h1>music-geshizhuanhuan</h1>
+      <h1>MusicUnlock</h1>
       <p>全平台加密音乐格式转换 · 本地解密 · 不上传</p>
     </div>
     <span id="health">连接中</span>
+    <button type="button" id="settingsToggle" aria-expanded="false" aria-controls="updatePanel">设置</button>
   </header>
+
+  <section id="updatePanel" class="update-panel" aria-labelledby="updateHeading" data-phase="idle" hidden>
+    <div class="update-heading">
+      <div><p class="update-eyebrow">设置</p><h2 id="updateHeading" tabindex="-1">软件更新</h2></div>
+      <button type="button" id="closeSettings" class="ghost" aria-label="关闭软件更新设置">关闭</button>
+    </div>
+    <p class="update-intro">从 GitHub 检测源代码更新，确认后在本机构建。构建完成后重启生效。</p>
+    <dl class="update-versions">
+      <div><dt>当前构建</dt><dd id="currentBuild">等待桌面信息</dd></div>
+      <div><dt>当前构建的上游提交</dt><dd><code id="currentRevision">尚未获取</code></dd></div>
+      <div><dt>上次检测</dt><dd id="updateCheckedAt">尚未检测</dd></div>
+    </dl>
+    <div class="update-status-box" role="status" aria-live="polite" aria-atomic="true">
+      <p id="updateStatus">软件更新仅在桌面版可用；请等待桌面连接就绪。</p>
+      <p id="latestSummary" hidden></p>
+    </div>
+    <div class="update-progress" id="updateProgress" role="progressbar" aria-label="软件更新处理中" hidden><span></span></div>
+    <div class="update-actions">
+      <button type="button" id="checkUpdates" disabled>检测更新</button>
+      <button type="button" id="updateSoftware" class="primary" disabled>更新软件</button>
+      <button type="button" id="restartUpdate" class="primary" hidden disabled>重启生效</button>
+    </div>
+    <p id="restartHint" class="update-hint" hidden>重启前请先保存当前转换结果；重启会关闭此窗口。</p>
+    <details id="updateDetails" class="update-details">
+      <summary>版本与源码详情</summary>
+      <dl>
+        <div><dt>最新上游提交</dt><dd><code id="latestRevision">尚未检测</code></dd></div>
+        <div><dt>本地源码目录</dt><dd id="sourceWorkspace">尚未配置</dd></div>
+        <div><dt>更新日志</dt><dd id="updateLogPath">尚无日志</dd></div>
+      </dl>
+      <button type="button" id="chooseWorkspace" disabled>选择源码目录</button>
+      <p class="update-hint">复制的软件找不到源码时，可选择本机的项目目录。</p>
+    </details>
+  </section>
 
   <div class="drop" id="drop">
     <div class="eq"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
@@ -319,6 +355,7 @@ function fmtSize(n) {
 }
 
 function addFiles(fileList) {
+  if (window.MusicUnlockUpdates?.isInstalling()) return;
   for (const f of fileList) {
     if (!EXTS.has(f.name.split('.').pop().toLowerCase())) continue;
     state.items.push({ file: f, status: 'wait', id: null, note: '', tags: {}, cover: null, plat: platOf(f.name) });
@@ -374,8 +411,14 @@ function render() {
     const finfo = document.createElement('div');
     finfo.className = 'finfo';
     const tags = Object.values(item.tags).filter(Boolean).join(' · ');
-    finfo.innerHTML = `<span>${fmtSize(item.file.size)}</span>` +
-      (item.note ? `<span>·</span><span class="tagline">${item.note}${tags ? ' · ' + tags : ''}</span>` : '');
+    const size = document.createElement('span'); size.textContent = fmtSize(item.file.size);
+    finfo.appendChild(size);
+    if (item.note) {
+      const separator = document.createElement('span'); separator.textContent = '·';
+      const tagline = document.createElement('span'); tagline.className = 'tagline';
+      tagline.textContent = item.note + (tags ? ' · ' + tags : '');
+      finfo.append(separator, tagline);
+    }
     meta.appendChild(finfo);
 
     if (item.status === 'fail' && item.note) {
@@ -423,9 +466,11 @@ function render() {
     `<span>处理中 <b style="color:var(--accent2)">${run}</b></span>` +
     `<span>等待 <b>${wait}</b></span>`;
   $('zipAll').disabled = ok === 0;
+  window.dispatchEvent(new Event('musicunlock:queuechange'));
 }
 
 function pump() {
+  if (window.MusicUnlockUpdates?.isInstalling()) return;
   const CONCURRENCY = 2;
   while (state.busy < CONCURRENCY) {
     const item = state.items.find(i => i.status === 'wait');
@@ -514,5 +559,6 @@ $('clear').onclick = async () => {
 
 health();
 </script>
+<script src="/static/settings.js"></script>
 </body>
 </html>

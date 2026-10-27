@@ -1,4 +1,4 @@
-# music-geshizhuanhuan 🎵
+# MusicUnlock 🎵
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-3776ab)
@@ -68,16 +68,16 @@
 ### macOS / Linux
 
 ```bash
-git clone git@github.com:HRuiCcc/music-geshizhuanhuan.git
-cd music-geshizhuanhuan
+git clone git@github.com:HRuiCcc/music-geshizhuanhuan.git MusicUnlock
+cd MusicUnlock
 ./run.sh web        # 首次运行自动装依赖，然后自动打开 http://127.0.0.1:8686
 ```
 
 ### Windows
 
 ```powershell
-git clone git@github.com:HRuiCcc/music-geshizhuanhuan.git
-cd music-geshizhuanhuan
+git clone git@github.com:HRuiCcc/music-geshizhuanhuan.git MusicUnlock
+cd MusicUnlock
 .\run.bat web       # 双击 run.bat 或 PowerShell 运行，自动装依赖并打开浏览器
 ```
 
@@ -150,7 +150,7 @@ flowchart LR
 ## 🗂 项目结构
 
 ```
-music-geshizhuanhuan/
+MusicUnlock/
 ├── unlocker.py        # CLI 入口
 ├── run.sh / run.bat   # 启动器（macOS/Linux: run.sh，Windows: run.bat；web / 命令行 双模式）
 ├── music_unlock/      # 核心引擎（纯 Python，仅标准库+pycryptodome）
