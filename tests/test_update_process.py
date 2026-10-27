@@ -29,7 +29,8 @@ def test_job_kills_only_its_child_and_closes_handles(tmp_path):
     command = [sys.executable, '-c',
                'import pathlib,time,sys; pathlib.Path(sys.argv[1]).write_text("ready"); time.sleep(60)',
                str(marker)]
-    unrelated = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+    unrelated = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'],
+                                  creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     child = WindowsManagedProcess(command)
     try:
         for _ in range(100):
@@ -81,7 +82,8 @@ def test_private_job_also_owns_grandchild_before_parent_termination(tmp_path):
     grandchild = ('import pathlib,os,time; pathlib.Path(' + repr(str(marker)) +
                   ').write_text(str(os.getpid())); time.sleep(60)')
     command = [sys.executable, '-c',
-               'import subprocess,sys,time; subprocess.Popen([sys.executable,"-c",sys.argv[1]]); time.sleep(60)',
+               'import subprocess,sys,time; subprocess.Popen([sys.executable,"-c",sys.argv[1]], '
+               'creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0)); time.sleep(60)',
                grandchild]
     child = ManagedProcess.launch(command)
     try:
@@ -170,7 +172,8 @@ def test_child_spawn_clears_and_restores_parent_dll_directory(tmp_path):
 def test_allow_survival_retains_job_for_cancellation_and_protects_unrelated_child():
     from music_unlock.update_process import ManagedProcess
     child = ManagedProcess.launch([sys.executable, '-c', 'import time; time.sleep(60)'])
-    unrelated = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+    unrelated = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'],
+                                  creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     try:
         job, process = child.job, child.process
         child.allow_survival()

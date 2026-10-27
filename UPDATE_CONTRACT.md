@@ -28,7 +28,10 @@ runtime URL overrides or production fixture flags.
 State fields (always present; additional internal fields allowed):
 `app_name, phase, message, current_revision, latest_revision, current_build,
 latest_summary, checked_at, build_ready, source_workspace, can_update,
-can_restart, log_path`. Revisions are 40-hex strings or empty. Phases:
+can_restart, log_path`. Additive `ready_revision` identifies the verified
+candidate tip separately from `latest_revision`. Retain its restart action
+across rechecks/failures while `build_ready` and `can_restart` are true.
+Revisions are 40-hex strings or empty. Phases:
 idle/checking/up_to_date/available/preparing/validating/building/ready/installing/failed.
 Network errors are failed checks, never "up to date". No network at construction.
 

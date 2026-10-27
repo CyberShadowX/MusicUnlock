@@ -52,11 +52,93 @@ def manager_for(history, tmp_path, **kwargs):
     )
 
 
+@pytest.fixture
+def ready_update(history, tmp_path):
+    (history["remote"] / "new.txt").write_text("upstream", encoding="utf-8")
+    ready_revision = commit(history["remote"], "candidate B")
+    manager = manager_for(history, tmp_path)
+    manager.check_updates()
+    assert settled(manager)["phase"] == "available"
+    manager.start_update()
+    assert settled(manager)["phase"] == "ready"
+    yield manager, ready_revision
+    manager.close()
+
+
+@pytest.mark.parametrize("checked_tip", ["built", "newer", "current"])
+def test_ready_revision_stays_with_built_candidate_when_rechecking(ready_update, history, checked_tip):
+    manager, candidate_b = ready_update
+    expected_tip = candidate_b
+    if checked_tip == "newer":
+        (history["remote"] / "later.txt").write_text("newer commit C", encoding="utf-8")
+        expected_tip = commit(history["remote"], "checked tip C")
+    elif checked_tip == "current":
+        expected_tip = history["baseline"]
+        manager.source.check = lambda: {"revision": expected_tip, "summary": "running upstream"}
+    manager.check_updates()
+    state = settled(manager)
+    assert state["latest_revision"] == expected_tip
+    assert state["ready_revision"] == candidate_b
+    assert state["build_ready"] and state["can_restart"]
+    assert manager.candidate()["upstream_revision"] == candidate_b
+
+
+@pytest.mark.parametrize("failure", ["check", "build"])
+def test_ready_revision_survives_failed_recheck_or_newer_build(ready_update, history, failure):
+    manager, candidate_b = ready_update
+
+    def failed(*args):
+        raise RuntimeError("update attempt failed")
+
+    if failure == "check":
+        manager.source.check = failed
+        manager.check_updates()
+    else:
+        (history["remote"] / "later.txt").write_text("newer commit C", encoding="utf-8")
+        candidate_c = commit(history["remote"], "checked tip C")
+        manager.check_updates()
+        assert settled(manager)["latest_revision"] == candidate_c
+        manager.build_runner = failed
+        manager.start_update()
+    state = settled(manager)
+    assert state["phase"] == "failed"
+    assert state["ready_revision"] == candidate_b
+    assert state["build_ready"] and state["can_restart"]
+    assert manager.candidate()["upstream_revision"] == candidate_b
+
+
+@pytest.mark.parametrize("valid_selection", [True, False])
+def test_ready_revision_tracks_candidate_when_workspace_selection_changes(ready_update, history, tmp_path, valid_selection):
+    manager, candidate_b = ready_update
+    selected = history["workspace"] if valid_selection else tmp_path / "missing workspace"
+    state = manager.set_workspace(selected)
+    assert state["ready_revision"] == ("" if valid_selection else candidate_b)
+    assert state["build_ready"] is (not valid_selection)
+    assert state["can_restart"] is (not valid_selection)
+
+
+@pytest.mark.parametrize("validation_path", ["candidate", "failure"])
+def test_invalid_candidate_clears_ready_revision(ready_update, validation_path):
+    manager, _ = ready_update
+    artifact = Path(manager.candidate()["artifact"])
+    artifact.write_bytes(artifact.read_bytes() + b"tampered")
+    if validation_path == "candidate":
+        assert manager.candidate() is None
+    else:
+        manager.source.check = lambda: (_ for _ in ()).throw(RuntimeError("network failed"))
+        manager.check_updates()
+        settled(manager)
+    state = manager.snapshot()
+    assert state["ready_revision"] == ""
+    assert not state["build_ready"] and not state["can_restart"]
+
+
 def test_no_network_at_construction_and_same_upstream_is_not_update(history, tmp_path):
     source = local_source(history)
     source.check = lambda: (_ for _ in ()).throw(RuntimeError("offline"))
     manager = manager_for(history, tmp_path, source=source)
     assert manager.snapshot()["phase"] == "idle"
+    assert manager.snapshot()["ready_revision"] == ""
     source.check = lambda: {"revision": history["baseline"], "summary": "same source"}
     manager.check_updates()
     state = settled(manager)
@@ -220,6 +302,7 @@ def test_ready_candidate_survives_restart_and_prepared_source_retry(history, tmp
     git(history["workspace"], "merge", "--ff-only", candidate["prepared_head"])
     restarted = manager_for(history, tmp_path)
     assert restarted.snapshot()["phase"] == "ready"
+    assert restarted.snapshot()["ready_revision"] == candidate["upstream_revision"]
     assert restarted.candidate()["prepared_head"] == candidate["prepared_head"]
     restarted.close()
 
@@ -243,6 +326,7 @@ def test_successful_install_result_is_recognized_by_the_new_running_build(histor
                               {"source_revision": candidate["prepared_head"], "upstream_revision": candidate["upstream_revision"]},
                               source=local_source(history))
     assert restarted.snapshot()["phase"] == "up_to_date"
+    assert restarted.snapshot()["ready_revision"] == ""
     assert restarted.candidate() is None
     restarted.close()
 

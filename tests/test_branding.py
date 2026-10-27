@@ -12,8 +12,8 @@ def tracked_tree(tmp_path):
         '<a href="https://github.com/HRuiCcc/music-geshizhuanhuan">GitHub</a>', encoding="utf-8")
     (tmp_path / "music_unlock/cli.py").write_text('BANNER="music-geshizhuanhuan"', encoding="utf-8")
     (tmp_path / "music_unlock/branding.py").write_text('OLD_NAME="music-geshizhuanhuan"', encoding="utf-8")
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True, capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return tmp_path
 
 
@@ -52,7 +52,7 @@ def test_new_html_cannot_hide_old_runtime_brand(tmp_path, name, content):
     root = tracked_tree(tmp_path)
     apply_branding(root)
     (root / name).write_text(content, encoding="utf-8")
-    subprocess.run(["git", "-C", str(root), "add", name], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(root), "add", name], check=True, capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     with pytest.raises(ValueError, match="显示名称"):
         validate_branding(root)
 

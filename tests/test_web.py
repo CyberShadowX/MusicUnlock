@@ -40,6 +40,7 @@ def server():
     proc = subprocess.Popen(
         [sys.executable, str(ROOT / "web" / "server.py"), "--port", str(PORT), "--no-browser"],
         cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     for _ in range(50):
         try:

@@ -397,20 +397,53 @@ def _git_invocation(root, args, environment=None):
     return command, environment
 
 
-def git(root, *args, environment=None):
+def git(root, *args, environment=None, preserve_output=False):
     command, environment = _git_invocation(root, args, environment)
     with clean_dll_directory():
         completed = subprocess.run(command,
-                               capture_output=True, text=True, encoding='utf-8', errors='replace',
+                               capture_output=True,
                                timeout=120, env=environment,
                                creationflags=0x08000000 if os.name == 'nt' else 0)
     if completed.returncode:
-        raise ValueError(completed.stderr.strip() or 'Git source validation failed')
-    return completed.stdout.strip()
+        raise ValueError(completed.stderr.decode('utf-8', 'replace').strip() or 'Git source validation failed')
+    output = completed.stdout.decode('utf-8', 'strict' if preserve_output else 'replace')
+    return output if preserve_output else output.strip()
 
 
 class SourceRecoveryError(ValueError):
     """A failed filesystem/ref operation left preserved recovery evidence."""
+
+
+def reject_untracked_checkout_collisions(workspace, old, new):
+    """Git may overwrite ignored files, so protect every new materialized path.
+
+    This runs while the caller holds source ref/index locks. NUL-delimited tree
+    output retains whitespace and Unicode filenames. lstat detects directory,
+    symlink and dangling reparse entries without following them.
+    """
+    def paths(revision):
+        result = git(workspace, 'ls-tree', '-r', '-z', '--name-only', revision, preserve_output=True)
+        return [Path(name) for name in result.split('\0') if name]
+    tracked = {os.path.normcase(str(path)) for path in paths(old)}
+    for relative in paths(new):
+        if relative.is_absolute() or any(part in ('.', '..') for part in relative.parts):
+            raise ValueError('Invalid incoming tracked source path')
+        if os.path.normcase(str(relative)) in tracked:
+            continue
+        current = workspace
+        for position, component in enumerate(relative.parts):
+            current = current / component
+            try:
+                information = current.lstat()
+            except FileNotFoundError:
+                break
+            except NotADirectoryError as error:
+                raise ValueError(f'Incoming source path collides with an existing file: {current}') from error
+            if (stat.S_ISLNK(information.st_mode)
+                    or getattr(information, 'st_file_attributes', 0) & 0x400):
+                raise ValueError(f'Incoming source path collides with a symlink/reparse entry: {current}')
+            if position == len(relative.parts) - 1 or not stat.S_ISDIR(information.st_mode):
+                raise ValueError(f'Incoming source path collides with existing user content: {current}')
 
 
 class _RefTransaction:
@@ -517,6 +550,7 @@ def advance_source(candidate, job):
         # These reads happen after Git holds HEAD plus its dereferenced branch.
         if check_source(candidate) != old:
             raise ValueError('Source changed while acquiring transaction locks')
+        reject_untracked_checkout_collisions(workspace, old, candidate['prepared_head'])
         environment = clean_environment()
         environment['GIT_INDEX_FILE'] = str(next_index)
         if old != candidate['prepared_head']:
@@ -560,6 +594,7 @@ def advance_source(candidate, job):
                 environment = clean_environment()
                 environment['GIT_INDEX_FILE'] = str(next_index)
                 # Refuse to overwrite edits made after our forward checkout.
+                reject_untracked_checkout_collisions(workspace, candidate['prepared_head'], old)
                 git(workspace, 'read-tree', '-m', '-u', candidate['prepared_head'], old,
                     environment=environment)
             except Exception as recovery_error:

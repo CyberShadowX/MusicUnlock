@@ -11,7 +11,8 @@ import pytest
 
 
 def git(root, *args):
-    return subprocess.check_output(['git', '-C', str(root), *args], text=True).strip()
+    return subprocess.check_output(['git', '-C', str(root), *args], text=True,
+                                   creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)).strip()
 
 
 def pe(path, text):
@@ -32,7 +33,7 @@ def install_fixture(tmp_path):
     git(workspace, 'init', '-b', 'main')
     git(workspace, 'config', 'user.email', 'fixture@example.invalid')
     git(workspace, 'config', 'user.name', 'Fixture')
-    (workspace / '.gitignore').write_text('.musicunlock-updates/\n.venv/\n')
+    (workspace / '.gitignore').write_text('.musicunlock-updates/\n.venv/\npersonal*\n personal*\n')
     (workspace / 'source.txt').write_text('old')
     git(workspace, 'add', '.')
     git(workspace, 'commit', '-m', 'base')
@@ -212,7 +213,8 @@ def test_result_path_through_directory_junction_is_rejected(install_fixture, tmp
     outside.mkdir()
     data = target.parent / 'MusicUnlock-data'
     completed = subprocess.run(['cmd', '/c', 'mklink', '/J', str(data), str(outside)],
-                               capture_output=True, text=True)
+                               capture_output=True, text=True,
+                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     assert completed.returncode == 0, completed.stderr
     from music_unlock.update_install import prepare_install
     with pytest.raises(ValueError, match='Reparse'):
@@ -376,7 +378,8 @@ def test_source_fast_forward_holds_head_branch_and_index_against_concurrent_swit
     def racing_git(root, *args, **kwargs):
         if args and args[0] in ('merge', 'read-tree'):
             attempt = subprocess.run(['git', '-C', str(workspace), 'switch', 'other'],
-                                     capture_output=True, text=True)
+                                     capture_output=True, text=True,
+                                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             switched.append(attempt.returncode)
         return original_git(root, *args, **kwargs)
     monkeypatch.setattr(bootstrap, 'git', racing_git)
@@ -534,3 +537,129 @@ def test_completed_index_swap_never_deletes_a_new_other_process_lock(install_fix
     outcome = bootstrap.install(Path(result['manifest_path']), runner=ReceiptRunner, parent_factory=ParentExited)
     assert outcome['status'] == 'installed'
     assert new_user_lock.read_text() == 'next Git operation owns this lock'
+
+
+@pytest.mark.parametrize('incoming,private', [
+    ('personal.txt', 'personal.txt'),
+    ('personal-folder/private.txt', 'personal-folder/private.txt'),
+    ('personal-dir', 'personal-dir/private.txt'),
+    ('personal-root/new.txt', 'personal-root'),
+    (' personal.txt', ' personal.txt'),
+    ('personal-资料.txt', 'personal-资料.txt'),
+])
+def test_incoming_tracked_path_never_overwrites_ignored_user_content(install_fixture, incoming, private):
+    import update_bootstrap as bootstrap
+    candidate, target, _, _ = install_fixture
+    workspace, worktree = Path(candidate['workspace']), Path(candidate['worktree'])
+    incoming_path = worktree / incoming
+    incoming_path.parent.mkdir(parents=True, exist_ok=True)
+    incoming_path.write_text('upstream new content', encoding='utf-8')
+    git(worktree, 'add', '-f', '--', incoming)
+    git(worktree, 'commit', '-m', 'upstream tracks previously ignored path')
+    candidate['prepared_head'] = candidate['upstream_revision'] = git(worktree, 'rev-parse', 'HEAD')
+    private_path = workspace / private
+    private_path.parent.mkdir(parents=True, exist_ok=True)
+    private_path.write_text('MY PRIVATE USER DATA', encoding='utf-8')
+    assert not git(workspace, 'status', '--porcelain')
+    result = prepare(install_fixture)
+    ReceiptRunner.launches = []
+    ReceiptRunner.fail = False
+    outcome = bootstrap.install(Path(result['manifest_path']), runner=ReceiptRunner, parent_factory=ParentExited)
+    assert outcome['status'] == 'failed', outcome
+    assert outcome['rollback_relaunched'] is True
+    assert ReceiptRunner.launches == [[str(target)]]
+    assert private_path.read_text(encoding='utf-8') == 'MY PRIVATE USER DATA'
+    assert git(workspace, 'rev-parse', 'HEAD') == candidate['expected_head']
+    assert not git(workspace, 'status', '--porcelain')
+    assert target.read_bytes().endswith(b'OLD')
+
+
+def test_new_tracked_file_can_share_directory_with_unrelated_ignored_user_file(install_fixture):
+    import update_bootstrap as bootstrap
+    candidate = install_fixture[0]
+    workspace, worktree = Path(candidate['workspace']), Path(candidate['worktree'])
+    incoming = worktree / 'personal-folder/new.txt'
+    incoming.parent.mkdir()
+    incoming.write_text('upstream new content')
+    git(worktree, 'add', '-f', '--', 'personal-folder/new.txt')
+    git(worktree, 'commit', '-m', 'new tracked file in shared directory')
+    candidate['prepared_head'] = candidate['upstream_revision'] = git(worktree, 'rev-parse', 'HEAD')
+    private = workspace / 'personal-folder/private.txt'
+    private.parent.mkdir()
+    private.write_text('MY PRIVATE USER DATA')
+    result = prepare(install_fixture)
+    ReceiptRunner.fail = False
+    outcome = bootstrap.install(Path(result['manifest_path']), runner=ReceiptRunner, parent_factory=ParentExited)
+    assert outcome['status'] == 'installed', outcome
+    assert private.read_text() == 'MY PRIVATE USER DATA'
+    assert (workspace / 'personal-folder/new.txt').read_text() == 'upstream new content'
+    assert not git(workspace, 'status', '--porcelain')
+
+
+def test_failed_transaction_never_overwrites_new_ignored_file_during_reverse_checkout(install_fixture, monkeypatch):
+    import update_bootstrap as bootstrap
+    candidate = install_fixture[0]
+    workspace, worktree = Path(candidate['workspace']), Path(candidate['worktree'])
+    old_file = workspace / 'personal.txt'
+    old_file.write_text('old tracked content')
+    git(workspace, 'add', '-f', '--', 'personal.txt')
+    git(workspace, 'commit', '-m', 'old source tracks personal file')
+    candidate['expected_head'] = git(workspace, 'rev-parse', 'HEAD')
+    git(worktree, 'merge', '--no-edit', candidate['expected_head'])
+    git(worktree, 'rm', '--', 'personal.txt')
+    git(worktree, 'commit', '-m', 'upstream removes personal file')
+    candidate['prepared_head'] = candidate['upstream_revision'] = git(worktree, 'rev-parse', 'HEAD')
+    result = prepare(install_fixture)
+    def failed_commit(self):
+        assert not old_file.exists()
+        old_file.write_text('USER CREATED AFTER CHECKOUT')
+        raise OSError('fixture commit failed after user wrote ignored file')
+    monkeypatch.setattr(bootstrap._RefTransaction, 'commit', failed_commit)
+    outcome = bootstrap.install(Path(result['manifest_path']), runner=ReceiptRunner, parent_factory=ParentExited)
+    assert outcome['status'] == 'failed'
+    assert outcome['source_recovery_required'] is True
+    assert outcome['rollback_relaunched'] is True
+    assert old_file.read_text() == 'USER CREATED AFTER CHECKOUT'
+    assert git(workspace, 'rev-parse', 'HEAD') == candidate['expected_head']
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows ignored junction boundary')
+def test_incoming_path_below_ignored_junction_never_writes_external_directory(install_fixture):
+    import update_bootstrap as bootstrap
+    candidate, target, _, _ = install_fixture
+    workspace, worktree = Path(candidate['workspace']), Path(candidate['worktree'])
+    incoming = worktree / 'personal-link/new.txt'
+    incoming.parent.mkdir()
+    incoming.write_text('upstream new content')
+    git(worktree, 'add', '-f', '--', 'personal-link/new.txt')
+    git(worktree, 'commit', '-m', 'incoming path below ignored junction')
+    candidate['prepared_head'] = candidate['upstream_revision'] = git(worktree, 'rev-parse', 'HEAD')
+    outside = target.parent / 'private-external'
+    outside.mkdir()
+    (outside / 'private.txt').write_text('MY PRIVATE USER DATA')
+    completed = subprocess.run(['cmd', '/c', 'mklink', '/J', str(workspace / 'personal-link'), str(outside)],
+                               capture_output=True, text=True,
+                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    assert completed.returncode == 0, completed.stderr
+    result = prepare(install_fixture)
+    outcome = bootstrap.install(Path(result['manifest_path']), runner=ReceiptRunner, parent_factory=ParentExited)
+    assert outcome['status'] == 'failed'
+    assert outcome['rollback_relaunched'] is True
+    assert (outside / 'private.txt').read_text() == 'MY PRIVATE USER DATA'
+    assert not (outside / 'new.txt').exists()
+    assert git(workspace, 'rev-parse', 'HEAD') == candidate['expected_head']
+
+
+def test_source_tree_nul_output_preserves_literal_carriage_return_and_newline(install_fixture):
+    import update_bootstrap as bootstrap
+    candidate = install_fixture[0]
+    workspace = Path(candidate['workspace'])
+    blob = git(workspace, 'rev-parse', candidate['expected_head'] + ':source.txt')
+    filename = ' personal\r\n.txt'
+    result = subprocess.run(['git', '-C', str(workspace), 'mktree', '-z'],
+                            input=f'100644 blob {blob}\t{filename}\0'.encode('utf-8'),
+                            capture_output=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    assert result.returncode == 0, result.stderr
+    tree = result.stdout.decode('ascii').strip()
+    output = bootstrap.git(workspace, 'ls-tree', '-r', '-z', '--name-only', tree, preserve_output=True)
+    assert output == filename + '\0'

@@ -90,6 +90,14 @@ async function runSettingsAcceptance(page, config = {}) {
     assert.match(await page.locator('#updateStatus').innerText(), /网络/);
     assert.equal(await page.locator('#checkUpdates').isEnabled(), true);
     await show('ready', {message: '更新已构建完成', build_ready: true, can_restart: true});
+    for (const phase of ['available', 'up_to_date', 'failed']) {
+      await show(phase, {build_ready: true, can_restart: true,
+        ready_revision: 'b'.repeat(40), latest_revision: 'c'.repeat(40)});
+      assert.equal(await page.locator('#restartUpdate').isVisible(), true, 'A verified candidate must remain restartable after rechecking');
+      assert.equal(await page.locator('#restartUpdate').isEnabled(), true);
+      assert.match(await page.locator('#restartHint').innerText(), /bbbbbbbbbbbb/, 'Show the built revision separately from the newer checked tip');
+    }
+    await show('ready', {build_ready: true, can_restart: true, ready_revision: 'b'.repeat(40)});
     await page.evaluate(() => { state.busy = 1; render(); });
     assert.equal(await page.locator('#restartUpdate').isDisabled(), true);
     await page.evaluate(() => { state.busy = 0; state.items = [{file: new File(['x'], 'waiting.ncm'), status: 'wait', tags: {}, note: '', plat: platOf('waiting.ncm')}]; render(); });

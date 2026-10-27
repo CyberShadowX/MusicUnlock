@@ -178,7 +178,7 @@ def test_owned_child_process_exits_with_desktop_process():
         "from desktop_runtime import own_child_processes; import subprocess,sys,time; "
         "own_child_processes(); "
         "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'], "
-        "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); "
+        "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=subprocess.CREATE_NO_WINDOW); "
         "print(child.pid,flush=True); time.sleep(1)"
     )
     process = subprocess.Popen(

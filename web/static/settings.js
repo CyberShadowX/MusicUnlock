@@ -43,7 +43,7 @@
   function paint() {
     const enabled = nativeReady && bridgeAvailable();
     const busy = pending || active.has(snapshot.phase) || restarting;
-    const ready = snapshot.phase === 'ready' && snapshot.build_ready && snapshot.can_restart;
+    const ready = snapshot.build_ready && snapshot.can_restart;
     panel.dataset.phase = snapshot.phase;
     panel.setAttribute('aria-busy', String(busy));
     text('currentBuild', snapshot.current_build, '尚未获取');
@@ -63,7 +63,9 @@
     node('restartUpdate').hidden = !ready && !installing();
     node('restartUpdate').disabled = !enabled || busy || !ready || queueBusy();
     node('restartHint').hidden = !ready && !installing();
-    text('restartHint', queueBusy() ? '请等待转换队列完成，再保存当前结果并重启。' : '重启前请先保存当前转换结果；重启会关闭此窗口。', '');
+    const built = typeof snapshot.ready_revision === 'string' && /^[a-f0-9]{40}$/i.test(snapshot.ready_revision)
+      ? `已构建上游提交 ${snapshot.ready_revision.slice(0, 12)}。` : '';
+    text('restartHint', built + (queueBusy() ? '请等待转换队列完成，再保存当前结果并重启。' : '重启前请先保存当前转换结果；重启会关闭此窗口。'), '');
     node('drop').setAttribute('aria-disabled', String(installing()));
     node('picker').disabled = installing();
   }

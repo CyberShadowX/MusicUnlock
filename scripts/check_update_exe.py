@@ -93,7 +93,7 @@ def verify(release_exe):
     directory.mkdir(parents=True)
     report = {'passed': False, 'scope': 'controlled local upstream + actual candidate build/API + real frozen UI restart',
               'directory': str(directory), 'release_sha256': sha(release_exe)}
-    manager = process = audit = None
+    manager = process = audit = build_audit = None
     win = Win32()
     try:
         remote, upstream, workspace = directory / 'upstream.git', directory / 'upstream-edit', directory / 'workspace'
@@ -127,8 +127,12 @@ def verify(release_exe):
                                 source=FixtureSource(expected_origin=str(remote)))
         manager.check_updates()
         wait_manager(manager, 'available', 60)
+        build_audit = ProcessAudit(win, os.getpid())
         manager.start_update()
         wait_manager(manager, 'ready', 7200)
+        report['build_process_audit'] = build_audit.finish()
+        build_audit = None
+        assert not any(window['visible'] for window in report['build_process_audit']['console_windows']), 'Build created a visible console window'
         candidate = manager.candidate()
         assert candidate
         assert git(workspace, 'rev-parse', 'HEAD') == original[0], 'Preparation advanced original fixture source'
@@ -202,6 +206,8 @@ def verify(release_exe):
         report['passed'] = True
         return report
     finally:
+        if build_audit:
+            report['build_process_audit'] = build_audit.finish()
         if manager:
             manager.close()
         if audit:

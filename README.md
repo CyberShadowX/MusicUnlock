@@ -68,7 +68,7 @@
 ### macOS / Linux
 
 ```bash
-git clone git@github.com:HRuiCcc/music-geshizhuanhuan.git MusicUnlock
+git clone https://github.com/HRuiCcc/music-geshizhuanhuan.git MusicUnlock
 cd MusicUnlock
 ./run.sh web        # 首次运行自动装依赖，然后自动打开 http://127.0.0.1:8686
 ```
@@ -76,7 +76,7 @@ cd MusicUnlock
 ### Windows
 
 ```powershell
-git clone git@github.com:HRuiCcc/music-geshizhuanhuan.git MusicUnlock
+git clone https://github.com/HRuiCcc/music-geshizhuanhuan.git MusicUnlock
 cd MusicUnlock
 .\run.bat web       # 双击 run.bat 或 PowerShell 运行，自动装依赖并打开浏览器
 ```

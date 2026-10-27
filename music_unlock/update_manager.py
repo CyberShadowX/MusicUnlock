@@ -217,7 +217,7 @@ class UpdateManager:
             upstream = ""
         self._state = {
             "app_name": APP_NAME, "phase": "idle", "message": "点击检测更新后才会连接 GitHub。",
-            "current_revision": upstream, "latest_revision": "",
+            "current_revision": upstream, "latest_revision": "", "ready_revision": "",
             "current_build": str(current_info.get("built_at") or current_info.get("source_revision") or "未知构建"),
             "latest_summary": "", "checked_at": "", "build_ready": False,
             "source_workspace": str(self.workspace) if self.workspace else "",
@@ -278,6 +278,7 @@ class UpdateManager:
                 if result.get("source_advanced"):
                     message += " 源码已准备完成，当前 EXE 保持原版本。"
             self._state.update(phase="ready", message=message, latest_revision=candidate["upstream_revision"],
+                               ready_revision=candidate["upstream_revision"],
                                source_workspace=str(self.workspace), build_ready=True, can_restart=True,
                                log_path=candidate.get("log_path", ""))
         except Exception as exc:
@@ -299,6 +300,7 @@ class UpdateManager:
             except Exception:
                 self._candidate = None
         self._publish(phase="failed", message=str(exc), can_update=False,
+                      ready_revision=self._candidate["upstream_revision"] if self._candidate else "",
                       build_ready=bool(self._candidate), can_restart=bool(self._candidate))
 
     def _launch(self, phase, message, target):
@@ -336,6 +338,7 @@ class UpdateManager:
             message += " 请选择原始源码目录后重新检查。"
         self._publish(phase="available" if available else "up_to_date", message=message,
                       latest_revision=sha, latest_summary=str(latest.get("summary", "")),
+                      ready_revision=self._candidate["upstream_revision"] if self._candidate else "",
                       checked_at=datetime.now(timezone.utc).isoformat(),
                       can_update=bool(available and expected), build_ready=bool(self._candidate),
                       can_restart=bool(self._candidate))
@@ -381,6 +384,7 @@ class UpdateManager:
             _write_json(self._ready_path(), candidate)
             self._candidate = candidate
             self._state.update(phase="ready", message="更新已构建并验证完成，可重启激活。",
+                               ready_revision=candidate["upstream_revision"],
                                build_ready=True, can_restart=True, can_update=False)
 
     def set_workspace(self, path: Path) -> dict:
@@ -394,6 +398,7 @@ class UpdateManager:
                 self._checked = None
                 self._candidate = None
                 self._state.update(phase="idle", message="源码目录已配置，请重新检测更新。",
+                                   ready_revision="",
                                    source_workspace=str(self.workspace), can_update=False,
                                    can_restart=False, build_ready=False)
             except Exception as exc:
@@ -409,7 +414,8 @@ class UpdateManager:
                 self._verify_ready(candidate)
             except Exception as exc:
                 self._candidate = None
-                self._state.update(phase="failed", message=str(exc), build_ready=False, can_restart=False)
+                self._state.update(phase="failed", message=str(exc), ready_revision="",
+                                   build_ready=False, can_restart=False)
                 return None
             return candidate
 

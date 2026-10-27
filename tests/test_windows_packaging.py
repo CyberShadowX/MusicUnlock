@@ -48,6 +48,7 @@ def running_launcher(directory: Path, label: str):
             cwd=directory,
             env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             stdout=output, stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         try:
             deadline = time.monotonic() + 15
@@ -88,7 +89,7 @@ def test_concurrent_launchers_use_available_ports(tmp_path):
 def test_launcher_rejects_invalid_ports(port):
     result = subprocess.run(
         [sys.executable, str(ROOT / "windows_launcher.py"), "--port", port, "--no-browser"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True, text=True, timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     assert result.returncode == 2
     assert "argument --port" in result.stderr
