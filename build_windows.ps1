@@ -25,6 +25,9 @@ try {
     if (-not [Environment]::Is64BitOperatingSystem) {
         throw 'This build requires 64-bit Windows.'
     }
+    if (-not $WorkspaceRoot) { $WorkspaceRoot = $BuildRoot }
+    $WorkspaceRoot = (Resolve-Path -LiteralPath $WorkspaceRoot).Path
+    if (-not (Test-Path -LiteralPath (Join-Path $WorkspaceRoot '.git'))) { throw 'WorkspaceRoot must be the original Git source directory.' }
     $BuildTemp = Join-Path $BuildRoot '.cache\tmp'
     New-Item -ItemType Directory -Force -Path $BuildTemp | Out-Null
     $env:TEMP = $BuildTemp
@@ -36,7 +39,13 @@ try {
     }
     Invoke-BuildPython -Arguments @('-c', "import sys, struct; assert sys.version_info[:2] == (3, 12) and struct.calcsize('P') == 8, 'Build requires Python 3.12 x64'")
     Invoke-BuildPython -Arguments @('-m', 'pip', '--disable-pip-version-check', 'install', '-r', 'requirements-build.txt')
-    Invoke-BuildPython -Arguments @('-m', 'pytest', 'tests', '-q')
+    # Nested update worktrees must not nest pytest's Git fixtures again under
+    # their already-long build path (Git for Windows has a GIT_DIR limit).
+    # mkdtemp owns a fresh, bounded path and never reuses user directories.
+    $TestRunRoot = & $BuildPython -c "from pathlib import Path; import sys,tempfile; root=Path(sys.argv[1]).resolve(strict=True); cache=root/'.cache'/'t'; assert cache.resolve().is_relative_to(root), 'Test temp escaped source workspace'; cache.mkdir(parents=True,exist_ok=True); print(tempfile.mkdtemp(prefix='b-',dir=cache))" $WorkspaceRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot create a safe short project test directory.' }
+    Write-Output "Test temp: $TestRunRoot"
+    Invoke-BuildPython -Arguments @('-m', 'pytest', 'tests', '-q', '--basetemp', $TestRunRoot)
 
     if (-not $FFmpegPath) {
         $FoundFFmpeg = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
@@ -66,9 +75,6 @@ try {
     if ($UpstreamRevision -notmatch '^[a-fA-F0-9]{40}$') { throw 'UpstreamRevision must be a full Git commit SHA.' }
     & git merge-base --is-ancestor $UpstreamRevision HEAD
     if ($LASTEXITCODE -ne 0) { throw 'UpstreamRevision must already be included in this source HEAD.' }
-    if (-not $WorkspaceRoot) { $WorkspaceRoot = $BuildRoot }
-    $WorkspaceRoot = (Resolve-Path -LiteralPath $WorkspaceRoot).Path
-    if (-not (Test-Path -LiteralPath (Join-Path $WorkspaceRoot '.git'))) { throw 'WorkspaceRoot must be the original Git source directory.' }
     $SourceDirty = [bool](& git status --porcelain)
     $PythonVersion = & $BuildPython -c 'import sys; print(sys.version)'
     $Dependencies = & $BuildPython -m pip freeze
