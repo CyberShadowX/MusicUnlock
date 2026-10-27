@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from .errors import UnlockError
@@ -21,6 +22,10 @@ _ENCODER_ARGS = {
 def resolve_ffmpeg(explicit: str | None = None) -> str | None:
     if explicit:
         return explicit if Path(explicit).exists() else None
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        bundled = Path(sys._MEIPASS) / "bin" / "ffmpeg.exe"
+        if bundled.is_file():
+            return str(bundled)
     return shutil.which("ffmpeg")
 
 
@@ -33,6 +38,9 @@ def transcode(src: Path, dst: Path, target: str, ffmpeg: str | None = None) -> N
     if args is None:
         raise UnlockError(f"不支持的转码目标: {target}")
     cmd = [binary, "-y", "-v", "error", "-i", str(src), *args, str(dst)]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(
+        cmd, capture_output=True, text=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
     if proc.returncode != 0 or not dst.exists():
         raise UnlockError(f"ffmpeg 转码失败: {proc.stderr.strip()[:200]}")

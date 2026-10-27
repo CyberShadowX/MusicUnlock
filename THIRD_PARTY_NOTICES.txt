@@ -1,0 +1,30 @@
+MusicUnlock local Windows build
+
+Application source (MIT):
+https://github.com/HRuiCcc/music-geshizhuanhuan
+The repository LICENSE remains in force for the application code.
+
+Python: https://www.python.org/ (PSF license and bundled component notices)
+Flask: https://flask.palletsprojects.com/ (BSD-3-Clause)
+Werkzeug: https://werkzeug.palletsprojects.com/ (BSD-3-Clause)
+Jinja2: https://jinja.palletsprojects.com/ (BSD-3-Clause)
+MarkupSafe: https://markupsafe.palletsprojects.com/ (BSD-3-Clause)
+itsdangerous: https://itsdangerous.palletsprojects.com/ (BSD-3-Clause)
+Click: https://click.palletsprojects.com/ (BSD-3-Clause)
+Blinker: https://github.com/pallets-eco/blinker (MIT)
+PyCryptodome: https://www.pycryptodome.org/ (BSD/public-domain components)
+Mutagen: https://mutagen.readthedocs.io/ (GPL-2.0-or-later)
+PyInstaller bootloader: https://pyinstaller.org/ (GPL with distribution exception)
+
+FFmpeg is a separate executable invoked as a subprocess:
+https://ffmpeg.org/ and https://www.gyan.dev/ffmpeg/builds/
+This local build copies an already installed FFmpeg, without modifying it.
+Its exact version, configuration identity and SHA256 are in build-info.json.
+The installed build used here is GPL-3.0-or-later; its full license is included
+inside the executable and beside it in licenses/FFmpeg-LICENSE.txt.
+Corresponding FFmpeg source: https://git.ffmpeg.org/ffmpeg.git
+The local version identifies commit 44a0148fad (2023-11-05).
+
+Python and runtime package license files are collected inside the executable
+under licenses/. Project and FFmpeg notices are also supplied beside it.
+These notices do not change any dependency's license or upstream format support.

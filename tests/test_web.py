@@ -38,7 +38,7 @@ PNG = base64.b64decode(
 @pytest.fixture(scope="module")
 def server():
     proc = subprocess.Popen(
-        [sys.executable, str(ROOT / "web" / "server.py"), "--port", str(PORT)],
+        [sys.executable, str(ROOT / "web" / "server.py"), "--port", str(PORT), "--no-browser"],
         cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     for _ in range(50):
