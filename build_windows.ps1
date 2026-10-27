@@ -1,6 +1,8 @@
 ﻿param(
     [string]$FFmpegPath,
-    [string]$FFmpegLicensePath
+    [string]$FFmpegLicensePath,
+    [string]$UpstreamRevision,
+    [string]$WorkspaceRoot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,13 +59,28 @@ try {
 
     $SourceRevision = & git rev-parse HEAD
     if ($LASTEXITCODE -ne 0) { throw 'Run this build from the cloned Git repository.' }
+    if (-not $UpstreamRevision) {
+        $UpstreamRevision = & git merge-base HEAD origin/main
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot determine upstream baseline; supply -UpstreamRevision.' }
+    }
+    if ($UpstreamRevision -notmatch '^[a-fA-F0-9]{40}$') { throw 'UpstreamRevision must be a full Git commit SHA.' }
+    & git merge-base --is-ancestor $UpstreamRevision HEAD
+    if ($LASTEXITCODE -ne 0) { throw 'UpstreamRevision must already be included in this source HEAD.' }
+    if (-not $WorkspaceRoot) { $WorkspaceRoot = $BuildRoot }
+    $WorkspaceRoot = (Resolve-Path -LiteralPath $WorkspaceRoot).Path
+    if (-not (Test-Path -LiteralPath (Join-Path $WorkspaceRoot '.git'))) { throw 'WorkspaceRoot must be the original Git source directory.' }
     $SourceDirty = [bool](& git status --porcelain)
     $PythonVersion = & $BuildPython -c 'import sys; print(sys.version)'
     $Dependencies = & $BuildPython -m pip freeze
     New-Item -ItemType Directory -Force -Path (Join-Path $BuildRoot 'build') | Out-Null
     $BuildInfo = [ordered]@{
+        app_name = 'MusicUnlock'
         built_at = [DateTimeOffset]::Now.ToString('o')
         source_revision = $SourceRevision
+        upstream_repository = 'HRuiCcc/music-geshizhuanhuan'
+        upstream_branch = 'main'
+        upstream_revision = $UpstreamRevision.ToLowerInvariant()
+        source_workspace = $WorkspaceRoot
         source_dirty = $SourceDirty
         application_mode = 'native_desktop_window'
         renderer = 'EdgeChromium / installed Windows WebView2'

@@ -569,6 +569,9 @@ def verify(exe: Path, lifecycle_only: bool = False, requested_port: int | None =
         debug_port = free_port()
     cdp = f"http://127.0.0.1:{debug_port}"
     restricted_path = str(Path(os.environ["SystemRoot"]) / "System32")
+    git = shutil.which("git")
+    if git:
+        restricted_path += os.pathsep + str(Path(git).parent)
     assert shutil.which("python", path=restricted_path) is None
     assert shutil.which("ffmpeg", path=restricted_path) is None
     env = {**os.environ, "PATH": restricted_path, "TEMP": str(runtime), "TMP": str(runtime),
@@ -581,7 +584,7 @@ def verify(exe: Path, lifecycle_only: bool = False, requested_port: int | None =
               "restricted_path": restricted_path, "lifecycle_only": lifecycle_only}
     report["harness_sha256"] = {
         name: hashlib.sha256((ROOT / "scripts" / name).read_bytes()).hexdigest()
-        for name in ("check_desktop_exe.py", "desktop_e2e.cjs")
+        for name in ("check_desktop_exe.py", "desktop_e2e.cjs", "settings_e2e.cjs")
     }
     win32 = Win32()
     process = None

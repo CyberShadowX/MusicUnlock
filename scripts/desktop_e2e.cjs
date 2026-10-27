@@ -66,6 +66,10 @@ async function main() {
     page.on('pageerror', error => errors.push(error.message));
     await page.locator('#health.on').waitFor();
     assert.equal(await page.locator('#health').innerText(), '服务正常');
+    const settings = await require('./settings_e2e.cjs').runSettingsAcceptance(page, {
+      checkRealUpdates: true, expectedRealPhase: 'up_to_date',
+      realScreenshot: path.join(path.dirname(config.domScreenshot), 'settings-real.png'),
+    });
     await page.locator('#format').selectOption('flac');
     assert.equal(await page.locator('#format').inputValue(), 'flac');
     assert.equal(await page.locator('#embedCover').isChecked(), true);
@@ -102,6 +106,7 @@ async function main() {
       nativeSavedBytes: {single: singleBytes, zip: zipBytes},
       pageErrors: errors,
       domScreenshot: config.domScreenshot,
+      settings,
     };
     fs.writeFileSync(config.report, JSON.stringify(report, null, 2));
     console.log(JSON.stringify(report));

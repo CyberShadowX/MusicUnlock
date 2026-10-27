@@ -148,7 +148,7 @@ def verify(exe: Path) -> dict:
         env.pop("PYTHONHOME", None)
         with launched(portable_exe, working, "primary", env) as base:
             passed("standalone EXE: no Python/FFmpeg in PATH; Unicode path; foreign cwd; health")
-            assert b"music-geshizhuanhuan" in get(base)
+            assert b"MusicUnlock" in get(base)
             passed("bundled index and static UI")
             with launched(portable_exe, working, "concurrent", env) as second:
                 assert second != base

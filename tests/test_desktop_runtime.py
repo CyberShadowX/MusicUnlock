@@ -33,6 +33,10 @@ class NativeWindow:
     def __init__(self):
         self.events = SimpleNamespace(loaded=NativeEvent(), closed=NativeEvent())
         self.destroyed = False
+        self.exposed = []
+
+    def expose(self, *methods):
+        self.exposed.extend(method.__name__ for method in methods)
 
     def destroy(self):
         self.destroyed = True
@@ -154,7 +158,13 @@ def test_desktop_event_loop_owns_service_without_external_browser(tmp_path, monk
         if gui_mode != "sync_failure":
             assert observed["window"].destroyed
     else:
-        assert windows_launcher.run_desktop(tmp_path) == 0
+        report = tmp_path / "startup-ready.json"
+        assert windows_launcher.run_desktop(tmp_path, startup_report=report) == 0
+        assert json.loads(report.read_text())["status"] == "ready"
+        assert json.loads(report.read_text())["app_name"] == "MusicUnlock"
+        assert set(observed["window"].exposed) == {
+            "get_update_state", "check_updates", "start_update",
+            "choose_source_workspace", "restart_after_update"}
     assert_stopped(observed["url"])
 
 
@@ -189,3 +199,35 @@ def test_owned_child_process_exits_with_desktop_process():
         assert kernel.WaitForSingleObject(child_handle, 5000) == 0, "Child outlived application"
     finally:
         kernel.CloseHandle(child_handle)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows job breakaway")
+def test_update_helper_survives_old_app_job_after_explicit_release(tmp_path):
+    marker = tmp_path / "helper-survived.json"
+    root = Path(__file__).resolve().parents[1]
+    child_code = "import time,pathlib; time.sleep(2); pathlib.Path(" + repr(str(marker)) + ").write_text('survived')"
+    parent_code = (
+        "from desktop_runtime import own_child_processes,launch_update_helper; import sys; "
+        "own_child_processes(); helper=launch_update_helper([sys.executable,'-c'," + repr(child_code) + "]); "
+        "helper.close(release=True)"
+    )
+    result = subprocess.run([sys.executable, "-c", parent_code], cwd=root, capture_output=True,
+                            text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
+    assert result.returncode == 0, result.stderr
+    import time
+    deadline = time.monotonic() + 8
+    while not marker.exists() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert marker.read_text() == "survived"
+
+
+def test_managed_launch_failure_writes_receipt_without_error_dialog(tmp_path, monkeypatch):
+    import windows_launcher
+    import ctypes
+    monkeypatch.setattr(windows_launcher, "run_desktop", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("fixture-failure")))
+    monkeypatch.setattr(windows_launcher, "__file__", str(tmp_path / "windows_launcher.py"))
+    if sys.platform == "win32":
+        monkeypatch.setattr(ctypes.windll.user32, "MessageBoxW", lambda *a: pytest.fail("Managed startup blocked on dialog"))
+    report = tmp_path / "startup.json"
+    assert windows_launcher.main(["--startup-report", str(report)]) == 1
+    assert json.loads(report.read_text())["status"] == "failed"

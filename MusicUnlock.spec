@@ -13,7 +13,8 @@ if not ffmpeg.is_file():
 datas = [
     (str(root / "web" / "static"), "web/static"),
     (str(root / "assets" / "kugou_key.xz"), "assets"),
-    (str(root / "LICENSE"), "licenses/music-geshizhuanhuan"),
+    (str(root / "LICENSE"), "licenses/MusicUnlock"),
+    (str(root / "update_bootstrap.py"), "."),
     (str(root / "vendor" / "ffmpeg" / "LICENSE"), "licenses/ffmpeg"),
     (str(root / "THIRD_PARTY_NOTICES.txt"), "licenses"),
     (str(root / "build" / "build-info.json"), "."),

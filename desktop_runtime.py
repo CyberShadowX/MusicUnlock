@@ -10,6 +10,8 @@ from werkzeug.serving import make_server
 from web.server import app
 
 _job_handle = None
+_job_limits_type = None
+_job_lock = threading.RLock()
 
 
 class DesktopStartup:
@@ -83,7 +85,7 @@ class LocalService:
 
 def own_child_processes():
     """Have Windows reap this app's descendants when the app process exits."""
-    global _job_handle
+    global _job_handle, _job_limits_type
     if os.name != "nt" or _job_handle is not None:
         return
     from ctypes import wintypes
@@ -127,3 +129,38 @@ def own_child_processes():
     # Keep the handle open for the process lifetime. Closing it during Python
     # cleanup would kill this process before its service/files can be closed.
     _job_handle = job
+    _job_limits_type = ExtendedLimits
+
+
+def launch_update_helper(command):
+    """Detach only the held installer child; leave normal descendants owned."""
+    from ctypes import wintypes
+    from pathlib import Path
+    from music_unlock.update_process import ManagedProcess, clean_dll_directory, clean_environment
+    if os.name != "nt":
+        raise RuntimeError("更新安装仅支持 Windows")
+    own_child_processes()
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.SetInformationJobObject.argtypes = (wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD)
+    kernel.SetInformationJobObject.restype = wintypes.BOOL
+
+    def flags(value):
+        limits = _job_limits_type()
+        limits.basic.flags = value
+        if not kernel.SetInformationJobObject(_job_handle, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    helper = None
+    with _job_lock, clean_dll_directory():
+        flags(0x2000 | 0x800)  # KILL_ON_CLOSE | explicit BREAKAWAY_OK
+        try:
+            log_path = str(Path(command[-1]).parent / "helper-launch.log") if "--manifest" in command else None
+            helper = ManagedProcess.launch(command, env=clean_environment(), log_path=log_path, breakaway=True)
+        finally:
+            try:
+                flags(0x2000)
+            except BaseException:
+                if helper is not None:
+                    helper.close()  # still private kill-on-close job
+                raise
+    return helper

@@ -75,7 +75,7 @@ def running_launcher(directory: Path, label: str):
 def test_launcher_serves_ui_from_foreign_unicode_directory(tmp_path):
     with running_launcher(tmp_path / "中文 空格 working directory", "launcher") as url:
         with urllib.request.urlopen(url, timeout=5) as response:
-            assert b"music-geshizhuanhuan" in response.read()
+            assert b"MusicUnlock" in response.read()
 
 
 def test_concurrent_launchers_use_available_ports(tmp_path):
