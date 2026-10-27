@@ -80,6 +80,9 @@ when native loaded, or `{"status":"failed", "message":...}` and exits1
 without a blocking error dialog for install launches. Initial errors before GUI
 are also reported. Normal user launch still shows actionable native errors.
 Installer starts new EXE under a child-only Windows job before execution;
+new and rollback GUI launches explicitly use `show_window=True`; helper/build
+commands retain the default hidden startup policy. `CREATE_NO_WINDOW` remains
+set for console applications, independently of the GUI visibility setting.
 successful ready releases it without killing the app; failures kill only that
 job then restore/relaunch old EXE. Never taskkill arbitrary PID trees.
 

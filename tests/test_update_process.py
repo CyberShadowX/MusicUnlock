@@ -12,6 +12,53 @@ def test_process_module_has_owned_runner():
     assert callable(update_process.WindowsManagedProcess)
 
 
+@pytest.mark.skipif(os.name != 'nt', reason='Windows native startup visibility')
+@pytest.mark.parametrize('show_window', [False, True])
+def test_managed_launch_preserves_hidden_helpers_and_shows_requested_gui(tmp_path, show_window):
+    import ctypes
+    from ctypes import wintypes
+    import json
+    from music_unlock.update_process import ManagedProcess
+
+    # Use a real top-level HWND and the first ShowWindow call, which Windows
+    # overrides with STARTF_USESHOWWINDOW. A receipt alone cannot prove visibility.
+    script = '''
+import ctypes, json, pathlib, sys, time
+from ctypes import wintypes
+user = ctypes.WinDLL('user32', use_last_error=True)
+user.CreateWindowExW.argtypes = [wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR,
+    wintypes.DWORD, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+    wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, ctypes.c_void_p]
+user.CreateWindowExW.restype = wintypes.HWND
+user.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+hwnd = user.CreateWindowExW(0, 'STATIC', 'MusicUnlock visibility fixture',
+    0x00CF0000, 0, 0, 200, 100, None, None, None, None)
+if not hwnd:
+    raise ctypes.WinError(ctypes.get_last_error())
+user.ShowWindow(hwnd, 1)
+pathlib.Path(sys.argv[1]).write_text(json.dumps({'hwnd': hwnd}))
+time.sleep(60)
+'''
+    receipt = tmp_path / 'window.json'
+    kwargs = {'show_window': True} if show_window else {}
+    # Bypass venv's redirector: its second process does not inherit STARTUPINFO.
+    pythonw = str(Path(sys._base_executable).with_name('pythonw.exe'))
+    child = ManagedProcess.launch([pythonw, '-c', script, str(receipt)], **kwargs)
+    try:
+        deadline = time.monotonic() + 10
+        while not receipt.exists() and time.monotonic() < deadline:
+            assert child.poll() is None
+            time.sleep(.02)
+        assert receipt.exists(), 'Native window fixture did not start'
+        hwnd = json.loads(receipt.read_text())['hwnd']
+        user = ctypes.WinDLL('user32', use_last_error=True)
+        user.IsWindowVisible.argtypes = [wintypes.HWND]
+        user.IsWindowVisible.restype = wintypes.BOOL
+        assert bool(user.IsWindowVisible(hwnd)) is show_window
+    finally:
+        child.close()  # Only this fixture's private job is terminated.
+
+
 @pytest.mark.skipif(os.name != 'nt', reason='Windows handle ownership')
 def test_held_parent_uses_creation_identity():
     from music_unlock.update_process import HeldProcess, process_identity
@@ -133,10 +180,13 @@ def test_breakaway_flag_is_explicit_and_never_default():
     import inspect
     from music_unlock.update_process import ManagedProcess
     assert inspect.signature(ManagedProcess.launch).parameters['breakaway'].default is False
+    assert inspect.signature(ManagedProcess.launch).parameters['show_window'].default is False
     import update_bootstrap
     assert update_bootstrap.process_creation_flags(False) & 0x01000000 == 0
     assert update_bootstrap.process_creation_flags(True) & 0x01000000
     assert update_bootstrap.process_creation_flags(True) & 0x4
+    assert update_bootstrap.process_creation_flags(False) & 0x08000000  # CREATE_NO_WINDOW
+    assert update_bootstrap.process_creation_flags(True) & 0x08000000
 
 
 @pytest.mark.skipif(os.name != 'nt', reason='Windows DLL search state')

@@ -200,8 +200,10 @@ class WindowsManagedProcess:
 
     Only the held job may be terminated. No ancestry enumeration or raw PID kill
     occurs. On successful GUI startup release() removes kill-on-close.
+    Helpers stay hidden by default; GUI launches opt into show_window=True.
     """
-    def __init__(self, command, *, cwd=None, env=None, log_path=None, breakaway=False):
+    def __init__(self, command, *, cwd=None, env=None, log_path=None, breakaway=False,
+                 show_window=False):
         if not command or any(not isinstance(arg, str) or '\0' in arg for arg in command):
             raise ValueError('Expected a nonempty command argument list')
         self.kernel = _win32()
@@ -219,7 +221,7 @@ class WindowsManagedProcess:
             startup = _StartupInfoEx()
             startup.StartupInfo.cb = ctypes.sizeof(_StartupInfo)
             startup.StartupInfo.dwFlags = 1  # STARTF_USESHOWWINDOW
-            startup.StartupInfo.wShowWindow = 0
+            startup.StartupInfo.wShowWindow = 1 if show_window else 0  # SW_SHOWNORMAL / SW_HIDE
             flags = process_creation_flags(breakaway)
             if log_path is not None:
                 log = Path(log_path)
@@ -280,8 +282,10 @@ class WindowsManagedProcess:
                 self.kernel.CloseHandle(handle)
 
     @classmethod
-    def launch(cls, command, cwd=None, env=None, log_path=None, breakaway=False):
-        return cls(command, cwd=cwd, env=env, log_path=log_path, breakaway=breakaway)
+    def launch(cls, command, cwd=None, env=None, log_path=None, breakaway=False,
+               show_window=False):
+        return cls(command, cwd=cwd, env=env, log_path=log_path, breakaway=breakaway,
+                   show_window=show_window)
 
     def _set_kill_on_close(self, enabled):
         limits = _ExtendedLimit()
@@ -823,7 +827,8 @@ def install(manifest_path, *, runner=WindowsManagedProcess, parent_factory=HeldP
         receipt = safe_path(manifest['startup_report'])
         if receipt.exists():
             receipt.unlink()
-        child = runner([str(target), '--startup-report', str(receipt)], cwd=target.parent, env=clean_environment())
+        child = runner([str(target), '--startup-report', str(receipt)], cwd=target.parent,
+                       env=clean_environment(), show_window=True)
         _wait_startup(child, receipt, candidate['prepared_head'], startup_timeout)
         child.release()
         child.close()
@@ -864,7 +869,7 @@ def install(manifest_path, *, runner=WindowsManagedProcess, parent_factory=HeldP
                 if sha256(target) != manifest['current_exe_sha256']:
                     raise ValueError('Old executable was externally changed; refusing unsafe relaunch')
                 verify_pe(target)
-                old = runner([str(target)], cwd=target.parent, env=clean_environment())
+                old = runner([str(target)], cwd=target.parent, env=clean_environment(), show_window=True)
                 old.release()
                 old.close()
                 outcome.update(rollback_relaunched=True)

@@ -84,6 +84,11 @@ def build_candidate(worktree: Path, workspace: Path, upstream_revision: str,
     temporary = worktree / ".cache" / "tmp"
     temporary.mkdir(parents=True, exist_ok=True)
     env = git_environment()
+    # Let the selected Windows PowerShell discover its own edition's modules.
+    # A parent PowerShell 7 module list can hide Windows PowerShell cmdlets.
+    for name in list(env):
+        if name.upper() == "PSMODULEPATH":
+            env.pop(name)
     env.update(TEMP=str(temporary), TMP=str(temporary), PIP_CACHE_DIR=str(worktree / ".cache" / "pip"))
     command = [str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
                "-UpstreamRevision", upstream_revision, "-WorkspaceRoot", str(workspace),

@@ -108,12 +108,14 @@ class ParentExited:
 
 class ReceiptRunner:
     launches = []
+    launch_options = []
     fail = False
     terminated = False
     def __init__(self, command, **kwargs):
         self.command = command
         self.closed = False
         type(self).launches.append(command)
+        type(self).launch_options.append(kwargs)
         if '--startup-report' in command:
             receipt = Path(command[-1])
             manifest = json.loads(receipt.with_name('manifest.json').read_text())
@@ -130,12 +132,14 @@ def test_fixture_transaction_advances_source_and_swaps_binary(install_fixture):
     import update_bootstrap as bootstrap
     result = prepare(install_fixture)
     ReceiptRunner.launches = []
+    ReceiptRunner.launch_options = []
     ReceiptRunner.fail = False
     outcome = bootstrap.install(Path(result['manifest_path']), runner=ReceiptRunner, parent_factory=ParentExited)
     assert outcome['status'] == 'installed'
     assert install_fixture[1].read_bytes().endswith(b'NEW')
     assert git(install_fixture[0]['workspace'], 'rev-parse', 'HEAD') == install_fixture[0]['prepared_head']
     assert len(ReceiptRunner.launches) == 1
+    assert ReceiptRunner.launch_options[0]['show_window'] is True
     assert json.loads(Path(result['result_path']).read_text())['status'] == 'installed'
 
 
@@ -143,6 +147,7 @@ def test_failed_startup_restores_binary_and_relaunches_old_without_rewinding_sou
     import update_bootstrap as bootstrap
     result = prepare(install_fixture)
     ReceiptRunner.launches = []
+    ReceiptRunner.launch_options = []
     ReceiptRunner.fail = True
     ReceiptRunner.terminated = False
     outcome = bootstrap.install(Path(result['manifest_path']), runner=ReceiptRunner, parent_factory=ParentExited)
@@ -152,6 +157,7 @@ def test_failed_startup_restores_binary_and_relaunches_old_without_rewinding_sou
     assert git(install_fixture[0]['workspace'], 'rev-parse', 'HEAD') == install_fixture[0]['prepared_head']
     assert ReceiptRunner.terminated
     assert len(ReceiptRunner.launches) == 2
+    assert all(options['show_window'] is True for options in ReceiptRunner.launch_options)
 
 
 @pytest.mark.parametrize('change', ['old_binary', 'dirty_source', 'branch', 'result_escape', 'schema', 'artifact_hash'])

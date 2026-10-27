@@ -3,14 +3,51 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import struct
+import subprocess
 import threading
 import time
 
 import pytest
 
 from test_update_source import commit, git, history, local_source
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell module discovery")
+def test_build_child_finds_native_cmdlets_with_incompatible_parent_module_path(tmp_path, monkeypatch):
+    from music_unlock import update_manager as module
+    workspace, worktree = tmp_path / "workspace", tmp_path / "candidate"
+    (workspace / "vendor/ffmpeg").mkdir(parents=True)
+    (workspace / "vendor/ffmpeg/ffmpeg.exe").write_bytes(b"fixture")
+    (workspace / "vendor/ffmpeg/LICENSE").write_text("fixture")
+    worktree.mkdir()
+    (worktree / "build_windows.ps1").write_text("# Production command environment probe")
+    incompatible = str(tmp_path / "foreign-PowerShell-modules")
+    foreign = Path(incompatible) / "Microsoft.PowerShell.Utility"
+    foreign.mkdir(parents=True)
+    (foreign / "Microsoft.PowerShell.Utility.psd1").write_text(
+        "@{ ModuleVersion='7.0'; PowerShellVersion='3.0'; "
+        "CmdletsToExport=@('Get-FileHash'); FunctionsToExport=@(); "
+        "NestedModules=@('incompatible.dll') }", encoding="utf-8")
+    (foreign / "incompatible.dll").write_bytes(b"incompatible PowerShell edition fixture")
+    incompatible += os.pathsep + str(Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/Modules")
+    monkeypatch.setenv("PSModulePath", incompatible)
+    observed = []
+
+    def run_probe(command, *, cwd, env, **kwargs):
+        result = subprocess.run([command[0], "-NoProfile", "-Command",
+                                 "$ErrorActionPreference='Stop'; (Get-Command Get-FileHash -ErrorAction Stop).Source"],
+                                env=env, cwd=cwd, capture_output=True, text=True,
+                                creationflags=subprocess.CREATE_NO_WINDOW, timeout=15)
+        assert result.returncode == 0, result.stderr
+        assert "Microsoft.PowerShell.Utility" in result.stdout
+        observed.append(True)
+
+    monkeypatch.setattr(module, "run_owned", run_probe)
+    module.build_candidate(worktree, workspace, "a" * 40, tmp_path / "build.log", threading.Event())
+    assert observed and os.environ["PSModulePath"] == incompatible
 
 
 def settled(manager):

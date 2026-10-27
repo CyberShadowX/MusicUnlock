@@ -29,6 +29,9 @@ MusicUnlock-data 中最近的 MusicUnlock-数字.log 文件，每个实例独立
 
 构建来源、Python/依赖版本、界面模式和 FFmpeg 身份见 build-info.json；
 EXE 的 SHA256 见 SHA256SUMS.txt。许可证见 THIRD_PARTY_NOTICES.txt 和 licenses。
+这两个文件记录手动构建时的快照，软件内更新不会刷新旁边的快照文件。
+内置更新后的当前构建和上游提交以“设置”显示的信息为准；如需校验当前 EXE，
+可用 PowerShell 的 Get-FileHash -Algorithm SHA256 重新计算实际文件摘要。
 
 点击右上角“设置”，再点击“检测更新”，会查询原 GitHub 仓库 main 分支的
 源码提交。仅打开软件或设置页不会联网检测；当前构建和上游提交分开记录，
