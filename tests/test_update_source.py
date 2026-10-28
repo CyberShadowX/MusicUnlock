@@ -7,6 +7,7 @@ import subprocess
 import threading
 
 import pytest
+from test_branding import html_document
 
 
 def git(root, *args):
@@ -32,7 +33,7 @@ def history(tmp_path):
     (remote / ".gitignore").write_text(".musicunlock-updates/\n.cache/\n.venv/\nbuild/\ndist/\n", encoding="utf-8")
     (remote / "web" / "static").mkdir(parents=True)
     (remote / "web" / "static" / "index.html").write_text(
-        "<title>music-geshizhuanhuan</title><h1>music-geshizhuanhuan</h1>", encoding="utf-8"
+        html_document(), encoding="utf-8"
     )
     (remote / "shared.txt").write_text("baseline\n", encoding="utf-8")
     baseline = commit(remote, "upstream baseline")
@@ -45,8 +46,10 @@ def history(tmp_path):
 
 
 def validate_branding(root):
+    from music_unlock.branding import validate_branding as validate
+    validate(root)
     text = (root / "web" / "static" / "index.html").read_text(encoding="utf-8")
-    if "<title>MusicUnlock</title>" not in text or "<h1>MusicUnlock</h1>" not in text:
+    if "<title>MusicUnlock" not in text or "<h1>MusicUnlock</h1>" not in text:
         raise RuntimeError("branding invalid")
 
 
@@ -81,6 +84,30 @@ def test_source_merge_preserves_desktop_and_rebrands_without_moving_user_head(hi
     git(worktree, "merge-base", "--is-ancestor", latest, "HEAD")
     git(worktree, "merge-base", "--is-ancestor", history["custom"], "HEAD")
     assert candidate["upstream_revision"] == latest
+
+
+def test_real_upstream_merge_restores_palette_and_name_without_changing_original(history):
+    from music_unlock.branding import apply_branding
+    workspace = history["workspace"]
+    apply_branding(workspace)
+    local_head = commit(workspace, "local product appearance")
+    original = (workspace / "web/static/index.html").read_bytes()
+    upstream = html_document(styles='<style>select#format {background:white!important;color:white!important}</style>')
+    upstream = upstream.replace('</body>', '<p>music-geshizhuanhuan release notes</p>\n</body>')
+    (history["remote"] / "web/static/index.html").write_text(upstream, encoding="utf-8")
+    latest = commit(history["remote"], "upstream changes native menu styles")
+    candidate = prepare(history)
+    worktree = Path(candidate["worktree"])
+    validate_branding(worktree)
+    text = (worktree / "web/static/index.html").read_text(encoding="utf-8")
+    assert "background: #10141f !important" in text
+    assert "color: #eef2fa !important" in text
+    assert "color-scheme: dark !important" in text
+    assert 'https://github.com/HRuiCcc/music-geshizhuanhuan' in text
+    assert git(workspace, "rev-parse", "HEAD") == local_head
+    assert (workspace / "web/static/index.html").read_bytes() == original
+    assert git(workspace, "status", "--porcelain") == ""
+    git(worktree, "merge-base", "--is-ancestor", latest, "HEAD")
 
 
 def test_dirty_workspace_blocks_before_preparation_without_deleting_user_file(history):

@@ -1,6 +1,23 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+<style id="musicunlock-format-palette">
+@layer musicunlock-format-palette {
+  select#format#format,
+  select#format#format option {
+    color-scheme: dark !important;
+    background: #10141f !important;
+    color: #eef2fa !important;
+    -webkit-text-fill-color: #eef2fa !important;
+  }
+  select#format#format option:checked {
+    background: #263552 !important;
+    color: #eef2fa !important;
+    -webkit-text-fill-color: #eef2fa !important;
+  }
+}
+</style>
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MusicUnlock · 全平台加密音乐格式转换</title>
@@ -203,6 +220,7 @@
   .foot-note code { background: rgba(255,255,255,.06); border: 1px solid var(--line);
     padding: 1px 7px; border-radius: 6px; font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 11px; }
 </style>
+
 </head>
 <body>
 <div class="bg"></div>
