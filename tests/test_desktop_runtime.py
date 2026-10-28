@@ -164,7 +164,8 @@ def test_desktop_event_loop_owns_service_without_external_browser(tmp_path, monk
         assert json.loads(report.read_text())["app_name"] == "MusicUnlock"
         assert set(observed["window"].exposed) == {
             "get_update_state", "check_updates", "start_update",
-            "choose_source_workspace", "restart_after_update"}
+            "choose_source_workspace", "restart_after_update",
+            "save_results", "get_save_state"}
     assert_stopped(observed["url"])
 
 

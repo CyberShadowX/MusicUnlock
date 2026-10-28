@@ -11,6 +11,7 @@ import threading
 import uuid
 
 from desktop_runtime import DesktopStartup, LocalService, own_child_processes
+from desktop_saves import DesktopSaveBridge
 from music_unlock.app_info import APP_NAME, load_build_info
 from music_unlock.update_manager import UpdateManager
 from settings_bridge import SettingsBridge
@@ -41,6 +42,7 @@ def run_desktop(data_dir: Path, port: int = 0, startup_report: Path | None = Non
     info = load_build_info()
     manager = UpdateManager(None if frozen else Path(__file__).resolve().parent, data_dir, info)
     bridge = SettingsBridge(manager, data_dir, Path(sys.executable).resolve() if frozen else None)
+    saves = DesktopSaveBridge()
     try:
         with LocalService(port) as service:
             from web.server import app
@@ -52,8 +54,10 @@ def run_desktop(data_dir: Path, port: int = 0, startup_report: Path | None = Non
                 background_color="#090b11", text_select=True,
             )
             bridge.bind_window(window, service.url)
+            saves.bind_window(window, service.url)
             window.expose(bridge.get_update_state, bridge.check_updates, bridge.start_update,
-                          bridge.choose_source_workspace, bridge.restart_after_update)
+                          bridge.choose_source_workspace, bridge.restart_after_update,
+                          saves.save_results, saves.get_save_state)
             startup = DesktopStartup(window, lambda: webview.renderer)
 
             def mark_ready(*_):

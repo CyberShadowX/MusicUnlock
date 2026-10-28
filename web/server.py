@@ -11,7 +11,11 @@ API:
 from __future__ import annotations
 
 import io
+from contextlib import contextmanager
 import json
+import logging
+import os
+import re
 import shutil
 import tempfile
 import threading
@@ -21,6 +25,7 @@ import zipfile
 from pathlib import Path
 
 from flask import Flask, g, jsonify, request, send_file
+from werkzeug.wsgi import ClosingIterator
 
 import sys
 
@@ -41,13 +46,73 @@ _lock = threading.Lock()
 _results: dict[str, dict] = {}
 _conversion_lock = threading.Lock()
 _active_conversions = 0
+_active_exports = 0
 _update_restart = False
+
+
+class ExportError(ValueError):
+    def __init__(self, message: str, status: int = 400):
+        super().__init__(message)
+        self.status = status
+
+
+@contextmanager
+def result_export(ids):
+    """Lease registry sources against clear/expiry/restart, including native dialogs."""
+    global _active_exports
+    if (not isinstance(ids, list) or not ids or len(ids) > 10000
+            or any(not isinstance(rid, str) or not re.fullmatch(r"[0-9a-f]{12}", rid) for rid in ids)
+            or len(set(ids)) != len(ids)):
+        raise ExportError("请选择有效且不重复的转换结果。")
+    with _conversion_lock:
+        if _update_restart:
+            raise ExportError("正在重启应用更新，请稍后保存。", 409)
+        _active_exports += 1
+    try:
+        with _lock:
+            entries = []
+            for rid in ids:
+                meta = _results.get(rid)
+                if meta is None:
+                    raise ExportError("部分转换结果不存在，请重新转换后保存。", 404)
+                if not Path(meta["path"]).is_file():
+                    raise ExportError("部分转换文件已过期，请重新转换后保存。", 410)
+                entries.append(dict(meta))
+        yield entries
+    finally:
+        with _conversion_lock:
+            _active_exports -= 1
+
+
+def write_archive(destination: Path, entries: list[dict], progress=None):
+    """Stream already-compressed audio to disk with portable, unique member names."""
+    used = set()
+    with zipfile.ZipFile(destination, "w", zipfile.ZIP_STORED, allowZip64=True) as archive:
+        for index, meta in enumerate(entries, 1):
+            source = Path(meta["path"])
+            name = str(meta.get("output_name") or source.name).replace("\\", "/").rsplit("/", 1)[-1]
+            name = "".join("_" if c in '\\/:*?"<>|' or ord(c) < 32 else c for c in name).rstrip(" .") or "audio"
+            stem, suffix = Path(name).stem, Path(name).suffix
+            candidate, number = name, 2
+            while candidate.casefold() in used:
+                candidate = f"{stem} ({number}){suffix}"
+                number += 1
+            used.add(candidate.casefold())
+            archive.write(source, arcname=candidate)
+            if progress:
+                progress(index, len(entries))
+
+
+def _close_response(response, cleanup):
+    # send_file uses direct_passthrough, so response.call_on_close alone is not enough.
+    response.response = ClosingIterator(response.response, cleanup)
+    return response
 
 
 def begin_update_restart() -> bool:
     global _update_restart
     with _conversion_lock:
-        if _active_conversions or _update_restart:
+        if _active_conversions or _active_exports or _update_restart:
             return False
         _update_restart = True
         return True
@@ -92,12 +157,15 @@ def _store_get(rid: str) -> dict | None:
 
 def _cleanup_expired(ttl_sec: int = 24 * 3600) -> None:
     cutoff = time.time() - ttl_sec
-    with _lock:
-        stale = [k for k, v in _results.items() if v.get("created", 0) < cutoff]
-        for k in stale:
-            path = _results.pop(k).get("path")
-            if path:
-                Path(path).unlink(missing_ok=True)
+    with _conversion_lock:
+        if _active_exports:
+            return
+        with _lock:
+            stale = [k for k, v in _results.items() if v.get("created", 0) < cutoff]
+            for k in stale:
+                path = _results.pop(k).get("path")
+                if path:
+                    Path(path).unlink(missing_ok=True)
 
 
 @app.get("/")
@@ -238,13 +306,19 @@ def cover(rid: str):
 
 @app.get("/api/download/<rid>")
 def download(rid: str):
-    meta = _store_get(rid)
-    if not meta:
-        return jsonify({"ok": False, "error": "不存在"}), 404
-    path = Path(meta["path"])
-    if not path.exists():
-        return jsonify({"ok": False, "error": "文件已过期"}), 410
-    return send_file(path, as_attachment=True, download_name=meta.get("output_name", path.name))
+    lease = result_export([rid])
+    try:
+        entries = lease.__enter__()
+    except ExportError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), exc.status
+    try:
+        meta = entries[0]
+        path = Path(meta["path"])
+        response = send_file(path, as_attachment=True, download_name=meta.get("output_name", path.name))
+        return _close_response(response, lambda: lease.__exit__(None, None, None))
+    except Exception:
+        lease.__exit__(None, None, None)
+        raise
 
 
 @app.get("/api/zip")
@@ -252,26 +326,50 @@ def zip_batch():
     ids = [i for i in (request.args.get("ids") or "").split(",") if i]
     if not ids:
         return jsonify({"ok": False, "error": "未选择文件"}), 400
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for rid in ids:
-            meta = _store_get(rid)
-            if not meta:
-                continue
-            path = Path(meta["path"])
-            if path.exists():
-                zf.write(path, arcname=meta.get("output_name", path.name))
-    buffer.seek(0)
-    return send_file(buffer, as_attachment=True, download_name="unlocked.zip", mimetype="application/zip")
+    archive = None
+    lease = result_export(ids)
+    entered = False
+
+    def cleanup():
+        nonlocal entered
+        try:
+            if archive is not None:
+                archive.unlink(missing_ok=True)
+        except OSError:
+            logging.exception("Could not remove temporary export archive: %s", archive)
+        finally:
+            if entered:
+                entered = False
+                lease.__exit__(None, None, None)
+
+    try:
+        entries = lease.__enter__()
+        entered = True
+        fd, name = tempfile.mkstemp(prefix="MusicUnlock-export-", suffix=".zip")
+        os.close(fd)
+        archive = Path(name)
+        write_archive(archive, entries)
+        response = send_file(archive, as_attachment=True, download_name="MusicUnlock.zip", mimetype="application/zip")
+
+        return _close_response(response, cleanup)
+    except ExportError as exc:
+        cleanup()
+        return jsonify({"ok": False, "error": str(exc)}), exc.status
+    except Exception:
+        cleanup()
+        raise
 
 
 @app.post("/api/clear")
 def clear():
-    with _lock:
-        for meta in _results.values():
-            work_dir = Path(meta["path"]).parent
-            shutil.rmtree(work_dir, ignore_errors=True)
-        _results.clear()
+    with _conversion_lock:
+        if _active_exports or _active_conversions or _update_restart:
+            return jsonify({"ok": False, "error": "正在转换、保存或重启，请完成后清空。"}), 409
+        with _lock:
+            for meta in _results.values():
+                work_dir = Path(meta["path"]).parent
+                shutil.rmtree(work_dir, ignore_errors=True)
+            _results.clear()
     return jsonify({"ok": True})
 
 
