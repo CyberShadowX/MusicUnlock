@@ -11,10 +11,19 @@ FORMAT_SELECT = ('<select id="format"><option value="">保持原样</option>'
 
 
 def html_document(name="music-geshizhuanhuan", styles="", select=FORMAT_SELECT):
+    integration = '''<script>
+const dl = document.createElement('a'); dl.className = 'dl'; dl.href = '/api/download/' + item.id;
+      dl.innerHTML = '<button class="primary">⬇ 下载</button>';
+const ids = state.items.filter(i => i.status === 'ok' && i.id).map(i => i.id).join(',');
+  if (ids) window.location = '/api/zip?ids=' + ids;
+$('clear').onclick = async () => {
+  await fetch('/api/clear', { method: 'POST' });
+};
+</script>'''
     return (f'<!DOCTYPE html>\n<html>\n<head>\n<title>{name} · 音乐</title>\n\n\n\n{styles}\n\n\n\n</head>\n'
             f'<body>\n<h1>{name}</h1>\n\n\n\n{select}\n\n\n\n'
             '<a href="https://github.com/HRuiCcc/music-geshizhuanhuan">GitHub</a>'
-            '\n\n\n\n</body>\n</html>')
+            f'\n\n\n\n{integration}\n</body>\n</html>')
 
 
 def tracked_tree(tmp_path):
@@ -24,6 +33,8 @@ def tracked_tree(tmp_path):
         html_document(), encoding="utf-8")
     (tmp_path / "music_unlock/cli.py").write_text('BANNER="music-geshizhuanhuan"', encoding="utf-8")
     (tmp_path / "music_unlock/branding.py").write_text('OLD_NAME="music-geshizhuanhuan"', encoding="utf-8")
+    for name in ("format_picker.js", "downloads.js"):
+        (tmp_path / "web/static" / name).write_bytes((Path(__file__).resolve().parents[1] / "web/static" / name).read_bytes())
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True, capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return tmp_path
@@ -56,6 +67,7 @@ def test_old_visible_name_rejected_even_with_new_title(tmp_path):
 @pytest.mark.parametrize("name,content", [
     ("music_unlock/cli.py", 'BANNER="music-geshizhuanhuan"'),
     ("windows_launcher.py", 'TITLE="music-geshizhuanhuan"'),
+    ("desktop_saves.py", 'TITLE="music-geshizhuanhuan"'),
     ("web/static/settings.js", 'label="music-geshizhuanhuan"'),
     ("run.bat", 'echo [music-geshizhuanhuan]'),
     ("run.sh", 'echo "music-geshizhuanhuan"'),
@@ -96,6 +108,156 @@ def test_current_interface_has_valid_native_dropdown_palette():
     assert "color-scheme: dark !important" in text
     assert "background: #10141f !important" in text
     assert "color: #eef2fa !important" in text
+
+
+def test_current_interface_uses_owned_menu_and_shared_save_pipeline():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "web/static/index.html").read_text(encoding="utf-8")
+    assert '<script src="/static/format_picker.js"></script>' in text
+    assert '<script src="/static/downloads.js"></script>' in text
+    assert "MusicUnlockSaves.save([item.id], false)" in text
+    assert "MusicUnlockSaves.save(ids, true)" in text
+    assert "window.location = '/api/zip" not in text
+    assert "aria-live=\"polite\"" in text
+
+
+def test_branding_rejects_missing_or_corrupted_owned_assets_before_any_write(tmp_path):
+    from music_unlock.branding import apply_branding
+    root = tracked_tree(tmp_path)
+    original = (root / "web/static/index.html").read_text(encoding="utf-8")
+    (root / "web/static/format_picker.js").write_text("corrupted", encoding="utf-8")
+    with pytest.raises(ValueError, match="托管|资源"):
+        apply_branding(root)
+    assert (root / "web/static/index.html").read_text(encoding="utf-8") == original
+
+
+def test_branding_restores_menu_save_script_references_and_live_status(tmp_path):
+    from music_unlock.branding import apply_branding, validate_branding
+    root = tracked_tree(tmp_path)
+    apply_branding(root)
+    path = root / "web/static/index.html"
+    source = path.read_text(encoding="utf-8")
+    removed = source.replace('<script src="/static/format_picker.js"></script>\n', '').replace(
+        '<script src="/static/downloads.js"></script>\n', '').replace(
+        '<div id="saveStatus" role="status" aria-live="polite" aria-atomic="true"></div>\n', '')
+    path.write_text(removed, encoding="utf-8")
+    with pytest.raises(ValueError, match="托管"):
+        validate_branding(root)
+    apply_branding(root)
+    assert path.read_text(encoding="utf-8") == source
+    validate_branding(root)
+
+
+@pytest.mark.parametrize("damage", [
+    lambda source: source.replace("MusicUnlockSaves.save(ids, true)", "changedSave(ids)"),
+    lambda source: source.replace('/static/downloads.js', '/static/downloads.js?unknown=1'),
+    lambda source: source.replace('aria-live="polite"', 'aria-live="off"'),
+    lambda source: source.replace('<script src="/static/format_picker.js"></script>',
+                                  '<script src="/static/format_picker.js"></script>' * 2),
+])
+def test_unknown_save_integration_is_rejected_before_branding_writes(tmp_path, damage):
+    from music_unlock.branding import apply_branding
+    root = tracked_tree(tmp_path)
+    apply_branding(root)
+    path = root / "web/static/index.html"
+    broken = damage(path.read_text(encoding="utf-8"))
+    path.write_text(broken, encoding="utf-8")
+    with pytest.raises(ValueError, match="托管"):
+        apply_branding(root)
+    assert path.read_text(encoding="utf-8") == broken
+
+
+@pytest.mark.parametrize("name", ["format_picker.js", "downloads.js"])
+def test_missing_owned_ui_asset_is_rejected_before_writes(tmp_path, name):
+    from music_unlock.branding import apply_branding
+    root = tracked_tree(tmp_path)
+    (root / "web/static" / name).unlink()
+    original = (root / "web/static/index.html").read_text(encoding="utf-8")
+    with pytest.raises(ValueError, match="托管"):
+        apply_branding(root)
+    assert (root / "web/static/index.html").read_text(encoding="utf-8") == original
+
+
+@pytest.mark.parametrize("damage", [
+    lambda source, zip_code: source.replace('<script>\n', '<script type="text/plain">\n', 1),
+    lambda source, zip_code: source.replace(zip_code, '/*' + zip_code + '*/'),
+    lambda source, zip_code: source.replace(zip_code, '`' + zip_code + '`'),
+    lambda source, zip_code: source.replace(zip_code, '<!--' + zip_code + '\n'),
+    lambda source, zip_code: source.replace('<script>\n', '<template><script>\n', 1).replace('</script>', '</script></template>', 1),
+    lambda source, zip_code: source.replace('<script>\n', '<script src="/static/unknown.js">\n', 1),
+])
+def test_inert_owned_wiring_is_rejected_before_any_write(tmp_path, damage):
+    from music_unlock.branding import apply_branding, validate_branding, _OWN_ZIP
+    root = tracked_tree(tmp_path)
+    apply_branding(root)
+    path = root / "web/static/index.html"
+    broken = damage(path.read_text(encoding="utf-8"), _OWN_ZIP)
+    path.write_text(broken, encoding="utf-8")
+    for operation in (validate_branding, apply_branding):
+        with pytest.raises(ValueError, match="托管|脚本"):
+            operation(root)
+        assert path.read_text(encoding="utf-8") == broken
+
+
+@pytest.mark.parametrize("attributes", ['type="text/plain"', 'type="module"', 'async', 'defer', 'nomodule', 'src="/static/other.js"'])
+def test_owned_script_attributes_cannot_disable_or_reorder_execution(tmp_path, attributes):
+    from music_unlock.branding import apply_branding, validate_branding
+    root = tracked_tree(tmp_path)
+    apply_branding(root)
+    path = root / "web/static/index.html"
+    source = path.read_text(encoding="utf-8")
+    broken = source.replace('<script src="/static/downloads.js">', f'<script {attributes} src="/static/downloads.js">')
+    path.write_text(broken, encoding="utf-8")
+    with pytest.raises(ValueError, match="托管|脚本"):
+        validate_branding(root)
+
+
+def test_owned_scripts_inside_comments_or_inert_parents_do_not_validate(tmp_path):
+    from music_unlock.branding import apply_branding, validate_branding
+    root = tracked_tree(tmp_path)
+    apply_branding(root)
+    path = root / "web/static/index.html"
+    source = path.read_text(encoding="utf-8")
+    for wrapper in ('<!--{}-->', '<template>{}</template>'):
+        broken = source.replace('<script src="/static/downloads.js"></script>', wrapper.format('<script src="/static/downloads.js"></script>'))
+        path.write_text(broken, encoding="utf-8")
+        for operation in (validate_branding, apply_branding):
+            with pytest.raises(ValueError, match="托管|脚本"):
+                operation(root)
+
+
+@pytest.mark.parametrize("damage", [
+    lambda source: source.replace('<script>\n', '<script async>\n', 1),
+    lambda source: source.replace('<script>\n', '<script defer>\n', 1),
+    lambda source: source.replace('<script>\n', '<script type="module">\n', 1),
+    lambda source: source.replace('<script src="/static/format_picker.js"></script>\n', '').replace(
+        '<script>\n', '<script src="/static/format_picker.js"></script>\n<script>\n', 1),
+    lambda source: source.replace('<script src="/static/format_picker.js"></script>\n<script src="/static/downloads.js"></script>',
+                                  '<script src="/static/downloads.js"></script>\n<script src="/static/format_picker.js"></script>'),
+])
+def test_script_execution_order_is_fail_closed(tmp_path, damage):
+    from music_unlock.branding import apply_branding, validate_branding
+    root = tracked_tree(tmp_path)
+    apply_branding(root)
+    path = root / "web/static/index.html"
+    broken = damage(path.read_text(encoding="utf-8"))
+    path.write_text(broken, encoding="utf-8")
+    for operation in (validate_branding, apply_branding):
+        with pytest.raises(ValueError, match="托管|脚本"):
+            operation(root)
+        assert path.read_text(encoding="utf-8") == broken
+
+
+def test_unrelated_javascript_comments_literals_and_classic_mime_remain_supported(tmp_path):
+    from music_unlock.branding import apply_branding, validate_branding
+    root = tracked_tree(tmp_path)
+    path = root / "web/static/index.html"
+    unrelated = "/* unrelated upstream comment */ const pattern = /['\"]/; const caption = `hello ${'world'}`;\n"
+    source = path.read_text(encoding="utf-8").replace('<script>\n', '<script type="text/javascript">\n' + unrelated, 1)
+    path.write_text(source, encoding="utf-8")
+    apply_branding(root)
+    validate_branding(root)
+    assert unrelated in path.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("owned", ["", '<style id="musicunlock-format-palette">select {color:white}</style>'])

@@ -15,8 +15,74 @@
     color: #eef2fa !important;
     -webkit-text-fill-color: #eef2fa !important;
   }
+  #format#format[hidden], #formatListbox#formatListbox[hidden] { display: none !important; }
+  #formatTrigger#formatTrigger, #formatListbox#formatListbox, #formatListbox#formatListbox [role="option"] {
+    color-scheme: dark !important;
+    color: #eef2fa !important;
+    -webkit-text-fill-color: #eef2fa !important;
+    font: 400 13px/1.5 -apple-system, "Segoe UI", sans-serif !important;
+    box-sizing: border-box !important;
+    opacity: 1 !important;
+    filter: none !important;
+    mix-blend-mode: normal !important;
+  }
+  #formatTrigger#formatTrigger {
+    background: linear-gradient(135deg, #30234f, #191626) !important;
+    border: 0 !important;
+    border-radius: 8px !important;
+    padding: 8px 12px !important;
+    min-width: 116px !important;
+    text-align: left !important;
+    cursor: pointer !important;
+  }
+  #formatTrigger#formatTrigger:focus-visible { outline: 2px solid #c4b5fd !important; outline-offset: 3px !important; }
+  #formatTrigger#formatTrigger:disabled { opacity: .55 !important; cursor: default !important; }
+  #formatListbox#formatListbox {
+    position: fixed !important;
+    inset: auto;
+    margin: 0 !important;
+    z-index: 20 !important;
+    background: linear-gradient(145deg, #2a2045, #171322) !important;
+    border: 0 !important;
+    border-radius: 10px !important;
+    padding: 5px !important;
+    overflow: auto !important;
+    overscroll-behavior: contain !important;
+  }
+  #formatListbox#formatListbox [role="option"] {
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 6px !important;
+    padding: 9px 12px !important;
+    cursor: pointer !important;
+  }
+  #formatListbox#formatListbox [role="option"][aria-selected="true"] { background: #463064 !important; font-weight: 600 !important; }
+  #formatListbox#formatListbox [role="option"][data-active="true"] { background: #594079 !important; outline: 1px solid #c4b5fd !important; outline-offset: -2px !important; }
+  #formatListbox#formatListbox [role="option"][aria-disabled="true"] { color: #c7bdde !important; -webkit-text-fill-color: #c7bdde !important; cursor: default !important; }
+  #saveStatus#saveStatus {
+    position: fixed !important;
+    bottom: 12px !important;
+    left: 20px !important;
+    right: 20px !important;
+    z-index: 30 !important;
+    max-width: 860px !important;
+    margin: 0 auto !important;
+    padding: 10px 14px !important;
+    border-radius: 8px !important;
+    background: #241b37 !important;
+    color: #e3d9ff !important;
+    -webkit-text-fill-color: #e3d9ff !important;
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+    pointer-events: none !important;
+  }
+  #saveStatus#saveStatus:empty { display: none !important; }
 }
 </style>
+
+
+
+
 
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -463,8 +529,9 @@ function render() {
     const acts = document.createElement('div');
     acts.className = 'acts';
     if (item.status === 'ok' && item.id) {
-      const dl = document.createElement('a'); dl.className = 'dl'; dl.href = '/api/download/' + item.id;
-      dl.innerHTML = '<button class="primary">⬇ 下载</button>';
+      const dl = document.createElement('button'); dl.className = 'primary dl'; dl.dataset.saveAction = 'single';
+      dl.textContent = '⬇ 保存';
+      dl.onclick = () => window.MusicUnlockSaves.save([item.id], false);
       acts.appendChild(dl);
     }
     const rm = document.createElement('button');
@@ -566,11 +633,13 @@ $('embedCover').onchange = e => state.embedCover = e.target.checked;
 $('ekey').oninput = e => state.ekey = e.target.value.trim();
 
 $('zipAll').onclick = () => {
-  const ids = state.items.filter(i => i.status === 'ok' && i.id).map(i => i.id).join(',');
-  if (ids) window.location = '/api/zip?ids=' + ids;
+  const ids = state.items.filter(i => i.status === 'ok' && i.id).map(i => i.id);
+  if (ids.length) window.MusicUnlockSaves.save(ids, true);
 };
 $('clear').onclick = async () => {
-  await fetch('/api/clear', { method: 'POST' });
+  if (window.MusicUnlockSaves?.isBusy() || window.MusicUnlockUpdates?.isInstalling()) return;
+  const response = await fetch('/api/clear', { method: 'POST' });
+  if (!response.ok) return;
   state.items = [];
   render();
 };
@@ -578,5 +647,8 @@ $('clear').onclick = async () => {
 health();
 </script>
 <script src="/static/settings.js"></script>
+<div id="saveStatus" role="status" aria-live="polite" aria-atomic="true"></div>
+<script src="/static/format_picker.js"></script>
+<script src="/static/downloads.js"></script>
 </body>
 </html>
