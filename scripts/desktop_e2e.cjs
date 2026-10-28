@@ -71,7 +71,7 @@ async function main() {
       realScreenshot: path.join(path.dirname(config.domScreenshot), 'settings-real.png'),
     });
     const formatPalette = await require('./format_palette_e2e.cjs').verifyPalette(page, config);
-    await page.locator('#format').selectOption('flac');
+    await page.locator('#format').selectOption('flac', {force: true});
     assert.equal(await page.locator('#format').inputValue(), 'flac');
     assert.equal(await page.locator('#embedCover').isChecked(), true);
     await page.locator('#picker').setInputFiles(config.fixtures.map(item => item.path));
@@ -87,11 +87,13 @@ async function main() {
     assert((await failedRow.locator('.err-text').innerText()).trim(), 'Invalid input needs a readable UI error');
 
     // Native dialogs must handle saving; never redirect downloads through CDP.
-    await singleRow.locator('a.dl').click();
+    await singleRow.locator('.dl').click();
     const singleBytes = await waitForFile(config.single);
+    await page.waitForFunction(() => document.querySelector('#saveStatus').dataset.phase === 'completed');
     assert.equal(page.url(), config.base + '/', 'A single download replaced the embedded interface');
     await page.locator('#zipAll').click();
     const zipBytes = await waitForFile(config.zip);
+    await page.waitForFunction(() => document.querySelector('#saveStatus').dataset.phase === 'completed');
     assert.equal(page.url(), config.base + '/', 'ZIP download replaced the embedded interface');
     await page.screenshot({path: config.domScreenshot, fullPage: true, animations: 'disabled'});
     assert.deepEqual(errors, [], 'The embedded UI emitted JavaScript errors');

@@ -32,7 +32,7 @@
   }
   function installing() { return restarting || snapshot.phase === 'installing'; }
   function queueBusy() {
-    return state.busy > 0 || state.items.some(item => item.status === 'wait' || item.status === 'run');
+    return !!window.MusicUnlockSaves?.isBusy() || state.busy > 0 || state.items.some(item => item.status === 'wait' || item.status === 'run');
   }
   function text(id, value, fallback) { node(id).textContent = value ? String(value) : fallback; }
   function revision(id, value, fallback, short = false) {
@@ -65,7 +65,7 @@
     node('restartHint').hidden = !ready && !installing();
     const built = typeof snapshot.ready_revision === 'string' && /^[a-f0-9]{40}$/i.test(snapshot.ready_revision)
       ? `已构建上游提交 ${snapshot.ready_revision.slice(0, 12)}。` : '';
-    text('restartHint', built + (queueBusy() ? '请等待转换队列完成，再保存当前结果并重启。' : '重启前请先保存当前转换结果；重启会关闭此窗口。'), '');
+    text('restartHint', built + (window.MusicUnlockSaves?.isBusy() ? '正在保存文件，请等待保存完成后再重启。' : queueBusy() ? '请等待转换队列完成，再保存当前结果并重启。' : '重启前请先保存当前转换结果；重启会关闭此窗口。'), '');
     node('drop').setAttribute('aria-disabled', String(installing()));
     node('picker').disabled = installing();
   }
@@ -132,6 +132,7 @@
   node('chooseWorkspace').addEventListener('click', () => invoke('choose_source_workspace'));
   node('restartUpdate').addEventListener('click', () => invoke('restart_after_update'));
   window.addEventListener('musicunlock:queuechange', paint);
+  window.addEventListener('musicunlock:savestate', paint);
   window.addEventListener('pywebviewready', () => {
     nativeReady = bridgeAvailable();
     paint();

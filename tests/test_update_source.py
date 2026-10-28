@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import threading
 
@@ -41,6 +42,14 @@ def history(tmp_path):
     git(tmp_path, "clone", str(remote), str(workspace))
     git(workspace, "checkout", "-b", "desktop")
     (workspace / "desktop.py").write_text("LOCAL_DESKTOP = True\n", encoding="utf-8")
+    # The real local desktop branch owns these assets and native-save definitions;
+    # the upstream baseline does not. Exercise the same preservation boundary.
+    project = Path(__file__).resolve().parents[1]
+    for name in ('web/static/format_picker.js', 'web/static/downloads.js',
+                 'desktop_saves.py', 'windows_launcher.py', 'web/server.py'):
+        target = workspace / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(project / name, target)
     custom = commit(workspace, "local desktop support")
     return {"remote": remote, "workspace": workspace, "baseline": baseline, "custom": custom}
 
@@ -86,6 +95,20 @@ def test_source_merge_preserves_desktop_and_rebrands_without_moving_user_head(hi
     assert candidate["upstream_revision"] == latest
 
 
+def test_source_prepare_rejects_lost_default_extension_without_moving_original(history):
+    workspace = history['workspace']
+    adapter = workspace / 'desktop_saves.py'
+    adapter.write_text(adapter.read_text(encoding='utf-8').replace(
+        'dialog.DefaultExt = extension', 'dialog.DefaultExt = ""'), encoding='utf-8')
+    original = commit(workspace, 'incompatible local saving fixture')
+    (history['remote'] / 'new-upstream.txt').write_text('upstream change', encoding='utf-8')
+    commit(history['remote'], 'new upstream')
+    with pytest.raises(ValueError, match='保存定制'):
+        prepare(history)
+    assert git(workspace, 'rev-parse', 'HEAD') == original
+    assert not git(workspace, 'status', '--porcelain')
+
+
 def test_real_upstream_merge_restores_palette_and_name_without_changing_original(history):
     from music_unlock.branding import apply_branding
     workspace = history["workspace"]
@@ -93,12 +116,17 @@ def test_real_upstream_merge_restores_palette_and_name_without_changing_original
     local_head = commit(workspace, "local product appearance")
     original = (workspace / "web/static/index.html").read_bytes()
     upstream = html_document(styles='<style>select#format {background:white!important;color:white!important}</style>')
-    upstream = upstream.replace('</body>', '<p>music-geshizhuanhuan release notes</p>\n</body>')
+    # Add unrelated upstream display text away from the owned closing-body
+    # integration. Editing the exact insertion site correctly causes a Git
+    # conflict; that is covered separately by the conflict test.
+    (history['remote'] / 'web/static/upstream-notice.js').write_text(
+        'const releaseLabel = "music-geshizhuanhuan release notes";\n', encoding='utf-8')
     (history["remote"] / "web/static/index.html").write_text(upstream, encoding="utf-8")
     latest = commit(history["remote"], "upstream changes native menu styles")
     candidate = prepare(history)
     worktree = Path(candidate["worktree"])
     validate_branding(worktree)
+    assert 'MusicUnlock release notes' in (worktree / 'web/static/upstream-notice.js').read_text(encoding='utf-8')
     text = (worktree / "web/static/index.html").read_text(encoding="utf-8")
     assert "background: #10141f !important" in text
     assert "color: #eef2fa !important" in text

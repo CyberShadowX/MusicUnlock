@@ -28,7 +28,9 @@ async function runSettingsAcceptance(page, config = {}) {
   const samples = [];
   // This is a test double at the native boundary, never a production test flag.
   await page.evaluate(() => {
-    window.__settingsAcceptance = {bridge: window.pywebview, items: state.items, busy: state.busy, calls: []};
+    window.__settingsAcceptance = {bridge: window.pywebview, items: state.items, busy: state.busy,
+      saves: window.MusicUnlockSaves, saving: false, calls: []};
+    window.MusicUnlockSaves = {isBusy: () => window.__settingsAcceptance.saving};
     const fixture = {
       app_name: 'MusicUnlock', phase: 'idle', message: '尚未检测更新',
       current_revision: 'a'.repeat(40), latest_revision: '', current_build: '2026-10-27 local',
@@ -104,6 +106,17 @@ async function runSettingsAcceptance(page, config = {}) {
     assert.equal(await page.locator('#restartUpdate').isDisabled(), true);
     await page.evaluate(() => { state.items = []; render(); });
     assert.equal(await page.locator('#restartUpdate').isEnabled(), true);
+    await page.evaluate(() => {
+      window.__settingsAcceptance.saving = true;
+      window.dispatchEvent(new Event('musicunlock:savestate'));
+    });
+    assert.equal(await page.locator('#restartUpdate').isDisabled(), true, 'Active saving must prevent update restart');
+    assert.match(await page.locator('#restartHint').innerText(), /保存/);
+    await page.evaluate(() => {
+      window.__settingsAcceptance.saving = false;
+      window.dispatchEvent(new Event('musicunlock:savestate'));
+    });
+    assert.equal(await page.locator('#restartUpdate').isEnabled(), true, 'Completed saving must release restart gate');
     await page.locator('#restartUpdate').click();
     await page.waitForFunction(() => window.__settingsAcceptance.calls.includes('restart_after_update'));
     await show('idle');
@@ -130,6 +143,7 @@ async function runSettingsAcceptance(page, config = {}) {
     await page.evaluate(() => {
       const saved = window.__settingsAcceptance;
       window.pywebview = saved.bridge;
+      window.MusicUnlockSaves = saved.saves;
       state.items = saved.items;
       state.busy = saved.busy;
       render();
@@ -157,7 +171,8 @@ async function unit() {
       const url = new URL(route.request().url());
       if (url.pathname === '/api/health') return route.fulfill({json: {ok: true}});
       if (url.pathname === '/') return route.fulfill({contentType: 'text/html', body: fs.readFileSync(path.join(root, 'web/static/index.html'))});
-      const file = {'/static/settings.js': 'settings.js', '/static/settings.css': 'settings.css'}[url.pathname];
+      const file = {'/static/settings.js': 'settings.js', '/static/settings.css': 'settings.css',
+        '/static/format_picker.js': 'format_picker.js', '/static/downloads.js': 'downloads.js'}[url.pathname];
       if (file) return route.fulfill({contentType: file.endsWith('.js') ? 'text/javascript' : 'text/css', body: fs.readFileSync(path.join(root, 'web/static', file))});
       return route.abort();
     });

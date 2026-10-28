@@ -62,6 +62,17 @@ Before bridge ready, disable actions and show Chinese desktop availability.
 When queue has waiting/running items, disable restart; backend independently
 rejects active conversions. UI has no externally navigating upstream links.
 
+Desktop saving exposes two additional result-ID-only methods:
+`DesktopSaveBridge.save_results(ids: list[str], archive: bool = False)` and
+`get_save_state()`. Only the exact bound local root page may call them. Native
+WinForms dialogs supply filenames, format filters and default extensions before
+overwrite confirmation; JavaScript cannot choose filesystem paths. Active export
+leases block clear/expiry/restart until completion/cancellation/failure. ZIPs are
+disk-backed, use unique member names and report missing results. Source candidates
+validate protected native-saving definitions plus executable UI integration and
+owned assets before build/activation. Original upstream remains origin; the user's
+CyberShadowX/MusicUnlock fork receives verified development changes separately.
+
 Installer native-side helper:
 `music_unlock.update_install.prepare_install(candidate: dict,
  app_executable: Path, data_dir: Path, pythonw: Path) -> dict` returns

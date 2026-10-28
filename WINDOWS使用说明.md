@@ -3,7 +3,7 @@
 1. 双击 MusicUnlock.exe，稍候数秒，直接进入 MusicUnlock 软件窗口。
 2. 先选择“保持原样”或目标格式，并按需设置标签、封面及 EKey。
 3. 再拖入音乐文件或文件夹，也可点击拖放区域选择文件，等待处理完成。
-4. 点击单个下载或 ZIP 打包下载，在“另存为”对话框中选择保存位置。
+4. 点击单个保存或 ZIP 打包下载，在原生“另存为”对话框中选择保存位置。改名时可省略后缀，软件按实际输出格式自动补齐；保存框的文件类型也显示对应扩展名。
 5. 完成后关闭软件窗口，程序、本机服务及其运行组件一并退出。
 
 桌面版不会打开 CMD/终端，也不会启动 Chrome、Edge 等外部浏览器。
@@ -37,10 +37,16 @@ EXE 的 SHA256 见 SHA256SUMS.txt。许可证见 THIRD_PARTY_NOTICES.txt 和 lic
 源码提交。仅打开软件或设置页不会联网检测；当前构建和上游提交分开记录，
 本地 MusicUnlock 桌面修改不会被误认成上游新版本。
 
-输出格式下拉菜单使用深色背景和浅色文字。更新合并上游源码后，会重新应用
-并检查 MusicUnlock 名称和该菜单配色；被移除或改写的配色块会自动恢复。
-如上游修改了下拉控件结构或加入不兼容的内联配色，软件会停止构建本次更新，
-保留当前可用版本。选中项的原生高亮仍由 Windows/WebView2 参与绘制。
+输出格式菜单由软件绘制，使用与界面一致的深紫色渐变、浅色文字和键盘焦点，
+支持方向键、回车、Esc 及点击外部关闭。原生选择框保留为加载失败时的后备。
+更新合并上游源码后，会重新应用并检查 MusicUnlock 名称、菜单配色与下载接线；
+托管资源、原生保存或生命周期保护不兼容时停止构建，保留当前可用版本。
+
+ZIP 在磁盘临时文件中生成，重名结果会自动编号，不会覆盖包内其他音频。
+下方状态显示正在准备、保存完成、已取消或具体错误；缺失结果不会悄悄跳过。
+保存期间不能清空结果或重启更新。Windows 可能在文件名输入框里隐藏已知后缀，
+文件类型筛选与默认后缀会保证省略后缀保存时仍生成真实的 .flac 等扩展名，
+无需改变资源管理器的全局设置。
 
 发现更新后点击“更新软件”。软件会创建独立源码目录，保留本地桌面和更新
 功能，合并上游源码并重新应用 MusicUnlock 名称，运行测试、构建窗口版 EXE，
@@ -68,7 +74,13 @@ Python 3.12 x64 和仓库内 .venv，以及 vendor/ffmpeg 中的程序和许可�
 .\build_windows.ps1 -FFmpegPath '你的FFmpeg目录\bin\ffmpeg.exe' -FFmpegLicensePath '你的FFmpeg目录\LICENSE'
 .\.venv\Scripts\python.exe scripts\smoke_windows_exe.py dist\MusicUnlock.exe
 .\.venv\Scripts\python.exe scripts\check_desktop_exe.py dist\MusicUnlock.exe
+.\.venv\Scripts\python.exe scripts\check_saving_exe.py dist\MusicUnlock.exe
 ```
+
+旧版仍在运行时，可增加 `-OutputDirectory 'output\release-staged'` 先生成并验证
+新版本，避免构建过程影响现有窗口。`origin` 保持原作者仓库，`fork` 指向
+CyberShadowX/MusicUnlock；开发完成的已验收提交同步到 `fork/main`，软件内
+“检测更新”仍跟踪原作者 main。构建或软件更新本身不会自动推送代码。
 
 --port 可指定本机服务端口；不指定则自动选择空闲端口。保留的
 --no-browser 是高级 API 兼容模式，只启动服务，普通使用不需要这个参数。

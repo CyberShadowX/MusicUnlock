@@ -15,6 +15,7 @@ import urllib.request
 
 from .app_info import UPSTREAM_BRANCH, UPSTREAM_REPOSITORY, UPSTREAM_URL
 from .branding import apply_branding, validate_branding
+from .saving_guard import validate_saving
 
 
 class UpdateError(RuntimeError):
@@ -179,6 +180,7 @@ class GitSource:
         # No refs are taken from a moving branch name after the check.
         self._git(worktree, "cat-file", "-e", sha + "^{commit}")
         self._git(worktree, "merge", "--no-edit", "--no-gpg-sign", sha)
+        validate_saving(worktree)
         changed = apply_branding(worktree)
         validate_branding(worktree)
         if changed:
@@ -224,4 +226,5 @@ class GitSource:
         if artifact != worktree / "dist" / "MusicUnlock.exe":
             raise UpdateError("候选可执行文件路径无效。")
         validate_branding(worktree)
+        validate_saving(worktree)
         return candidate

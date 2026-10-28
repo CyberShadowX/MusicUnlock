@@ -2,7 +2,6 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function rgb(text) {
   const numbers = text.match(/[\d.]+/g)?.map(Number);
@@ -17,60 +16,67 @@ function contrast(a, b) {
   const values = [luminance(a), luminance(b)].sort((a, b) => b - a);
   return (values[0] + 0.05) / (values[1] + 0.05);
 }
-
 async function verifyPalette(page, config = {}) {
   assert.match(await page.title(), /^MusicUnlock/);
   const control = page.locator('select#format');
+  const trigger = page.locator('#formatTrigger');
+  const menu = page.locator('#formatListbox');
+  await trigger.waitFor({state: 'visible'});
+  assert.equal(await control.isHidden(), true, 'Native select stays a hidden source of truth');
   const original = await control.inputValue();
-  const data = await control.evaluate(select => {
-    const style = getComputedStyle(select);
-    return {value: select.value, background: style.backgroundColor, foreground: style.color, scheme: style.colorScheme,
-      options: [...select.options].map(option => {
-        const value = getComputedStyle(option);
-        return {value: option.value, caption: option.text, selected: option.selected,
-          background: value.backgroundColor, foreground: value.color};
+  const options = await control.evaluate(select => [...select.options].map(o => ({value: o.value, caption: o.text, disabled: o.disabled})));
+  for (const value of ['', 'mp3', 'flac', 'm4a', 'wav', 'ogg']) assert(options.some(o => o.value === value));
+  await control.selectOption('mp3', {force: true});
+  assert.match(await trigger.innerText(), /MP3/);
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  await menu.waitFor({state: 'visible'});
+  assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
+  assert.equal(await menu.locator('[role="option"][aria-selected="true"]').innerText(), 'MP3');
+  const data = await menu.evaluate(element => {
+    const s = getComputedStyle(element);
+    return {background: s.backgroundImage, foreground: s.color, border: s.borderWidth, outline: s.outlineStyle,
+      selected: [...element.children].filter(o => o.getAttribute('aria-selected') === 'true').map(o => {
+        const c = getComputedStyle(o); return {background: c.backgroundColor, foreground: c.color};
+      }),
+      active: [...element.children].filter(o => o.dataset.active === 'true').map(o => {
+        const c = getComputedStyle(o); return {background: c.backgroundColor, foreground: c.color};
       })};
   });
-  assert.deepEqual(rgb(data.background), [16, 20, 31]);
+  assert.match(data.background, /^linear-gradient\(/);
+  assert.equal(data.border, '0px', 'App menu must not have the native white outer border');
+  assert.equal(data.outline, 'none');
   assert.deepEqual(rgb(data.foreground), [238, 242, 250]);
-  assert(data.scheme.split(/\s+/).includes('dark'));
-  for (const value of ['', 'mp3', 'flac', 'm4a', 'wav', 'ogg']) {
-    assert(data.options.some(option => option.value === value), `Missing existing format: ${value}`);
-  }
-  data.contrast = contrast(data.foreground, data.background);
-  assert(data.contrast >= 4.5);
-  for (const option of data.options) {
-    assert.deepEqual(rgb(option.background), option.selected ? [38, 53, 82] : [16, 20, 31]);
-    assert.deepEqual(rgb(option.foreground), [238, 242, 250]);
-    option.contrast = contrast(option.foreground, option.background);
-    assert(option.contrast >= 4.5, `Unreadable option ${option.caption}`);
-  }
-  await control.selectOption('mp3');
-  assert.equal(await control.inputValue(), 'mp3');
-  await control.selectOption(original);
-  if (config.popupReady && config.popupCaptured) {
-    await control.scrollIntoViewIfNeeded();
-    await control.click();
-    await sleep(150);
-    data.nativeOpen = await control.evaluate(select => CSS.supports('selector(select:open)') ? select.matches(':open') : null);
-    if (data.nativeOpen !== null) assert.equal(data.nativeOpen, true, 'Native menu did not open');
-    fs.writeFileSync(config.popupReady, JSON.stringify(data));
-    try {
-      const deadline = Date.now() + 15000;
-      let captured;
-      while (Date.now() < deadline) {
-        try { captured = JSON.parse(fs.readFileSync(config.popupCaptured, 'utf8')); } catch {}
-        if (captured) break;
-        await sleep(50);
-      }
-      assert(captured, 'Native popup capture timed out');
-      assert(!captured.error, captured.error);
-      data.capture = captured;
-    } finally {
-      await page.keyboard.press('Escape');
-    }
-  }
-  return {passed: true, ...data};
+  const stops = data.background.match(/rgba?\([^)]+\)/g);
+  assert(stops?.length >= 2 && new Set(stops).size >= 2, 'A visible gradient needs distinct stops');
+  data.gradientContrast = stops.map(stop => contrast(data.foreground, stop));
+  assert(data.gradientContrast.every(ratio => ratio >= 4.5));
+  for (const item of [...data.selected, ...data.active]) assert(contrast(item.foreground, item.background) >= 4.5);
+  if (config.menuScreenshot) await page.screenshot({path: config.menuScreenshot, animations: 'disabled'});
+  // Selection follows the native value and the existing conversion state.
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  assert.equal(await control.inputValue(), 'flac');
+  assert.equal(await page.evaluate(() => state.format), 'flac');
+  assert.equal(await menu.isHidden(), true);
+  assert.equal(await trigger.evaluate(e => e === document.activeElement), true);
+  await trigger.click();
+  await menu.locator('[role="option"]').filter({hasText: /^WAV$/}).click();
+  assert.equal(await control.inputValue(), 'wav');
+  await trigger.click();
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('Escape');
+  assert.equal(await control.inputValue(), 'wav', 'Escape must not commit a highlighted value');
+  await trigger.click();
+  await page.locator('#health').click();
+  assert.equal(await menu.isHidden(), true);
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab');
+  assert.equal(await menu.isHidden(), true);
+  assert.equal(await trigger.evaluate(e => e === document.activeElement), false, 'Tab must leave the control');
+  await control.selectOption(original, {force: true});
+  return {passed: true, renderedByApp: true, keyboard: true, outsideClick: true, nativeValueRetained: true, options, ...data};
 }
 
 async function main() {
@@ -78,20 +84,17 @@ async function main() {
   const config = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
   const root = path.resolve(__dirname, '..');
   const cache = path.join(root, '.cache/npm/_npx');
-  const playwright = require(fs.readdirSync(cache).map(name => path.join(cache, name, 'node_modules/playwright')).find(file => fs.existsSync(file)));
+  const playwright = require(fs.readdirSync(cache).map(n => path.join(cache, n, 'node_modules/playwright')).find(p => fs.existsSync(p)));
   const browser = await playwright.chromium.connectOverCDP(config.cdp, {noDefaults: true});
   let page;
   try {
-    page = browser.contexts()[0].pages().find(page => page.url().startsWith('http://127.0.0.1:'));
+    page = browser.contexts()[0].pages().find(p => p.url().startsWith('http://127.0.0.1:'));
     assert(page);
-    if (config.hostileLayer) {
-      await page.evaluate(() => {
-        const style = document.createElement('style');
-        style.id = 'qa-upstream-palette-layer';
-        style.textContent = '@layer qa-upstream {select#format,select#format option {background:white!important;color:white!important;-webkit-text-fill-color:white!important;color-scheme:light!important}}';
-        document.head.appendChild(style);
-      });
-    }
+    if (config.hostileLayer) await page.evaluate(() => {
+      const style = document.createElement('style'); style.id = 'qa-upstream-palette-layer';
+      style.textContent = '@layer qa-upstream {select#format,select#format option,#formatTrigger,#formatListbox,#formatListbox [role="option"] {background:white!important;color:white!important;-webkit-text-fill-color:white!important;color-scheme:light!important;border:1px solid white!important}}';
+      document.head.appendChild(style);
+    });
     const report = await verifyPalette(page, config);
     report.hostileLayer = !!config.hostileLayer;
     fs.writeFileSync(config.report, JSON.stringify(report, null, 2));
@@ -102,4 +105,4 @@ async function main() {
   }
 }
 module.exports = {verifyPalette};
-if (require.main === module) main().catch(error => { console.error(error.stack); process.exitCode = 1; });
+if (require.main === module) main().catch(e => {console.error(e.stack); process.exitCode = 1;});

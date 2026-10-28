@@ -423,9 +423,12 @@ class ProcessAudit:
 
 
 class NativeSaves:
-    def __init__(self, win32: Win32, audit: ProcessAudit, destinations: list[Path], initial_names: list[str]):
+    def __init__(self, win32: Win32, audit: ProcessAudit, destinations: list[Path], initial_names: list[str], *,
+                 omit_extensions: bool = False, cancel_indices: set[int] | None = None):
         self.win32, self.audit, self.destinations = win32, audit, destinations
         self.initial_names = initial_names
+        self.omit_extensions = omit_extensions
+        self.cancel_indices = cancel_indices or set()
         self.records: list[dict] = []
         self.last_dialog_state = None
         self.error = None
@@ -457,19 +460,29 @@ class NativeSaves:
                         continue
                     destination = self.destinations[len(self.records)]
                     assert not destination.exists(), f"Refusing to overwrite {destination}"
-                    self.win32.set_control_text(edits[0]["hwnd"], str(destination))
+                    entered = destination.with_suffix('') if self.omit_extensions else destination
+                    cancel = len(self.records) in self.cancel_indices
+                    if cancel:
+                        button = self.win32.user.GetDlgItem(dialog["hwnd"], 2)
+                        assert button, 'Native Cancel button is absent'
+                        self.records.append({'dialog': dialog, 'initial_filename': initial, 'cancelled': True})
+                        handled.add(dialog['hwnd'])
+                        invoke_native_save(int(button))
+                        continue
+                    self.win32.set_control_text(edits[0]["hwnd"], str(entered))
                     deadline = time.monotonic() + 8
                     while True:
                         current = self.win32.control_text(edits[0]["hwnd"])
-                        if current == str(destination):
+                        if current == str(entered):
                             time.sleep(0.1)
-                            if self.win32.control_text(edits[0]["hwnd"]) == str(destination):
+                            if self.win32.control_text(edits[0]["hwnd"]) == str(entered):
                                 break
                         assert time.monotonic() < deadline, f"Native filename did not settle before Save: {current}"
                         time.sleep(0.1)
                     button = self.win32.user.GetDlgItem(dialog["hwnd"], 1)
                     assert button, f"Save button is absent: {dialog}"
                     self.records.append({"dialog": dialog, "filename_control": edits[0], "destination": str(destination),
+                                         "initial_filename": initial, "omitted_extension": self.omit_extensions,
                                          "filename_readback": current, "native_save_button": int(button),
                                          "filename_input": "atomic EM_SETSEL + EM_REPLACESEL to the verified native Edit",
                                          "save_action": "UI Automation InvokePattern on the genuine Save button"})
@@ -631,12 +644,11 @@ def verify(exe: Path, lifecycle_only: bool = False, requested_port: int | None =
         if not lifecycle_only:
             generated = fixtures(directory)
             single, archive = directory / "另存为 单曲.flac", directory / "另存为 全部.zip"
-            saves = NativeSaves(win32, audit, [single, archive], [generated[0]["output_name"], "unlocked.zip"])
-            popup = FormatPopupCapture(win32, audit, window, directory)
+            saves = NativeSaves(win32, audit, [single, archive], [generated[0]["output_name"], "MusicUnlock.zip"], omit_extensions=True)
             config = {"cdp": cdp, "base": base, "fixtures": generated, "single": str(single), "zip": str(archive),
                       "report": str(directory / "embedded-e2e.json"), "domScreenshot": str(directory / "embedded-ui.png"),
                       "failureScreenshot": str(directory / "embedded-failure.png"),
-                      "popupReady": str(popup.ready), "popupCaptured": str(popup.captured)}
+                      "menuScreenshot": str(directory / "format-menu.png")}
             config_file = directory / "e2e-config.json"
             config_file.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
             with (directory / "embedded-e2e.log").open("wb") as log:
@@ -644,8 +656,6 @@ def verify(exe: Path, lifecycle_only: bool = False, requested_port: int | None =
                                cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, timeout=120, check=True)
             report["native_save_dialogs"] = saves.finish()
             saves = None
-            report["format_popup"] = popup.finish()
-            popup = None
             report["embedded_e2e"] = json.loads((directory / "embedded-e2e.json").read_text(encoding="utf-8"))
             report["single_flac"] = inspect_flac(single.read_bytes(), generated[0]["title"])
             with zipfile.ZipFile(archive) as bundle:

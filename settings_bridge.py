@@ -128,7 +128,7 @@ class SettingsBridge:
                 self._message = "请先成功构建并验证更新。"
                 return self._snapshot()
             if not self._begin_restart():
-                self._message = "正在转换文件，请等待转换完成后重启。"
+                self._message = "正在转换或保存文件，请等待完成后重启。"
                 return self._snapshot()
             self._installing = True
         helper = None

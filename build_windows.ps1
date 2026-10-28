@@ -2,7 +2,8 @@
     [string]$FFmpegPath,
     [string]$FFmpegLicensePath,
     [string]$UpstreamRevision,
-    [string]$WorkspaceRoot
+    [string]$WorkspaceRoot,
+    [string]$OutputDirectory = 'dist'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -96,9 +97,10 @@ try {
         ffmpeg_sha256 = (Get-FileHash -LiteralPath $StagedFFmpeg -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     $BuildInfo | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $BuildRoot 'build\build-info.json') -Encoding UTF8
-    Invoke-BuildPython -Arguments @('-m', 'PyInstaller', '--noconfirm', '--clean', 'MusicUnlock.spec')
-
-    $DistRoot = Join-Path $BuildRoot 'dist'
+    # Stage a release separately while an existing user instance keeps running.
+    $DistRoot = & $BuildPython -c "from pathlib import Path; import sys; root=Path(sys.argv[1]).resolve(strict=True); out=(root/sys.argv[2]).resolve(); assert out.is_relative_to(root) and out != root, 'OutputDirectory must stay inside the source project'; print(out)" $BuildRoot $OutputDirectory
+    if ($LASTEXITCODE -ne 0) { throw 'Invalid release output directory.' }
+    Invoke-BuildPython -Arguments @('-m', 'PyInstaller', '--noconfirm', '--clean', '--distpath', $DistRoot, 'MusicUnlock.spec')
     Copy-Item -LiteralPath (Join-Path $BuildRoot 'WINDOWS使用说明.md') -Destination $DistRoot
     Copy-Item -LiteralPath (Join-Path $BuildRoot 'THIRD_PARTY_NOTICES.txt') -Destination $DistRoot
     Copy-Item -LiteralPath (Join-Path $BuildRoot 'build\build-info.json') -Destination $DistRoot

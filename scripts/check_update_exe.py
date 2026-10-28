@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from check_desktop_exe import ProcessAudit, Win32, assert_no_console, fetch_json, free_port
-from format_popup_capture import FormatPopupCapture
+from check_saving_exe import run_on_page
 from music_unlock.app_info import UPSTREAM_URL
 from music_unlock.branding import validate_branding
 from music_unlock.update_manager import UpdateManager
@@ -87,19 +87,14 @@ const modulePath=fs.readdirSync(cache).map(d=>path.join(cache,d,'node_modules/pl
 
 
 def verify_installed_palette(cdp, win, audit, window, directory):
-    popup = FormatPopupCapture(win, audit, window, directory, prefix='updated-format')
     configuration = directory / 'updated-palette-config.json'
     output = directory / 'updated-palette.json'
     configuration.write_text(json.dumps({'cdp': cdp, 'report': str(output),
-                                         'popupReady': str(popup.ready), 'popupCaptured': str(popup.captured)}), encoding='utf-8')
-    try:
-        subprocess.run(['node', str(ROOT / 'scripts/format_palette_e2e.cjs'), '--config', str(configuration)],
-                       check=True, timeout=45, creationflags=subprocess.CREATE_NO_WINDOW)
-        capture = popup.finish()
-        return {'computed': read_json(output), 'native_popup': capture}
-    finally:
-        popup.stop.set()
-        popup.thread.join(timeout=5)
+                                         'menuScreenshot': str(directory / 'updated-gradient-menu.png'),
+                                         'hostileLayer': True}), encoding='utf-8')
+    subprocess.run(['node', str(ROOT / 'scripts/format_palette_e2e.cjs'), '--config', str(configuration)],
+                   check=True, timeout=45, creationflags=subprocess.CREATE_NO_WINDOW)
+    return {'computed': read_json(output), 'rendered_by_app': True}
 
 
 def verify(release_exe):
@@ -121,7 +116,8 @@ def verify(release_exe):
         probe = upstream / 'web/static/upstream-probe.js'
         probe.write_text('const upstreamProductLabel = "music-geshizhuanhuan";\n', encoding='utf-8')
         hostile_palette = upstream / 'web/static/upstream-palette-probe.css'
-        hostile_css = ('@layer upstream { select#format, select#format option { background: white !important; '
+        hostile_css = ('@layer upstream { select#format, select#format option, #formatTrigger, #formatListbox, '
+                       '#formatListbox [role="option"] { background: white !important; '
                        'color: white !important; -webkit-text-fill-color: white !important; '
                        'color-scheme: light !important; } }\n')
         hostile_palette.write_text(hostile_css, encoding='utf-8')
@@ -222,7 +218,9 @@ def verify(release_exe):
         assert report['activated_health']['upstream_revision'] == latest
         assert report['activated_health']['desktop_ready'] is True
         report['updated_palette'] = verify_installed_palette(cdp, win, audit, windows[0], directory)
-        win.screenshot(windows[0]['hwnd'], directory / 'updated-native-window.png', desktop=True)
+        saving_directory = directory / 'installed-saving'
+        saving_directory.mkdir()
+        report['updated_saving'] = run_on_page(cdp, page['url'].rstrip('/'), win, audit, saving_directory)
         win.close(windows[0]['hwnd'])
         deadline = time.monotonic() + 20
         while audit.alive() and time.monotonic() < deadline:
