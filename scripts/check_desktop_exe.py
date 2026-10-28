@@ -29,6 +29,10 @@ import zipfile
 import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
+if __package__:
+    from .format_popup_capture import FormatPopupCapture
+else:
+    from format_popup_capture import FormatPopupCapture
 TITLE = "MusicUnlock 音乐格式转换"
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
 BROWSERS = {"msedge.exe", "chrome.exe", "firefox.exe", "brave.exe", "opera.exe", "iexplore.exe", "chromium.exe", "vivaldi.exe"}
@@ -584,12 +588,13 @@ def verify(exe: Path, lifecycle_only: bool = False, requested_port: int | None =
               "restricted_path": restricted_path, "lifecycle_only": lifecycle_only}
     report["harness_sha256"] = {
         name: hashlib.sha256((ROOT / "scripts" / name).read_bytes()).hexdigest()
-        for name in ("check_desktop_exe.py", "desktop_e2e.cjs", "settings_e2e.cjs")
+        for name in ("check_desktop_exe.py", "desktop_e2e.cjs", "settings_e2e.cjs", "format_palette_e2e.cjs", "format_popup_capture.py")
     }
     win32 = Win32()
     process = None
     audit = None
     saves = None
+    popup = None
     window = None
     base = None
     try:
@@ -627,9 +632,11 @@ def verify(exe: Path, lifecycle_only: bool = False, requested_port: int | None =
             generated = fixtures(directory)
             single, archive = directory / "另存为 单曲.flac", directory / "另存为 全部.zip"
             saves = NativeSaves(win32, audit, [single, archive], [generated[0]["output_name"], "unlocked.zip"])
+            popup = FormatPopupCapture(win32, audit, window, directory)
             config = {"cdp": cdp, "base": base, "fixtures": generated, "single": str(single), "zip": str(archive),
                       "report": str(directory / "embedded-e2e.json"), "domScreenshot": str(directory / "embedded-ui.png"),
-                      "failureScreenshot": str(directory / "embedded-failure.png")}
+                      "failureScreenshot": str(directory / "embedded-failure.png"),
+                      "popupReady": str(popup.ready), "popupCaptured": str(popup.captured)}
             config_file = directory / "e2e-config.json"
             config_file.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
             with (directory / "embedded-e2e.log").open("wb") as log:
@@ -637,6 +644,8 @@ def verify(exe: Path, lifecycle_only: bool = False, requested_port: int | None =
                                cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, timeout=120, check=True)
             report["native_save_dialogs"] = saves.finish()
             saves = None
+            report["format_popup"] = popup.finish()
+            popup = None
             report["embedded_e2e"] = json.loads((directory / "embedded-e2e.json").read_text(encoding="utf-8"))
             report["single_flac"] = inspect_flac(single.read_bytes(), generated[0]["title"])
             with zipfile.ZipFile(archive) as bundle:
@@ -676,6 +685,9 @@ def verify(exe: Path, lifecycle_only: bool = False, requested_port: int | None =
             report["native_save_last_state"] = saves.last_dialog_state
         raise
     finally:
+        if popup is not None:
+            popup.stop.set()
+            popup.thread.join(timeout=5)
         if saves is not None:
             saves.stop.set()
             saves.thread.join(timeout=5)

@@ -9,10 +9,21 @@ Constants/helpers in `music_unlock.app_info`:
 - UPSTREAM_URL = "https://github.com/HRuiCcc/music-geshizhuanhuan.git"
 - `load_build_info() -> dict`: bundled build-info.json, or source build metadata.
 Brand helpers in `music_unlock.branding`:
-- `apply_branding(root: Path) -> list[str]`: rebrand tracked runtime text files;
-  return relative paths actually changed; preserve real upstream URLs.
+- `apply_branding(root: Path) -> list[str]`: rebrand tracked runtime text files
+  and restore the canonical output-format palette; return relative paths
+  actually changed; preserve real upstream URLs.
 - `validate_branding(root: Path) -> None`: raise on missing MusicUnlock HTML
-  title/h1 or old displayed runtime brand. Do not delete user/cache files.
+  title/h1, old displayed runtime brand, missing/changed owned palette or
+  unsupported native format-control markup. Do not delete user/cache files.
+- `FORMAT_PALETTE_ID` / `FORMAT_PALETTE_STYLE`: the single owned style block
+  reserves the first author layer in head, uses important scoped declarations,
+  dark color-scheme, opaque #10141f background and #eef2fa text; selected CSS
+  background is #263552. The OS may paint native selection highlights itself.
+  Reapply after upstream merge, then validate before candidate build/readiness
+  and activation. Missing/changed blocks are restored; incompatible structure
+  fails safely instead of silently reverting branding/palette. Future arbitrary
+  runtime JavaScript is outside this static source guard; installed native
+  acceptance separately verifies computed contrast and the real popup image.
 
 `music_unlock.update_manager.UpdateManager(workspace: Path | None, data_dir: Path,
  current_info: dict, **dependencies)`:

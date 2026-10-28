@@ -70,6 +70,7 @@ async function main() {
       checkRealUpdates: true, expectedRealPhase: 'up_to_date',
       realScreenshot: path.join(path.dirname(config.domScreenshot), 'settings-real.png'),
     });
+    const formatPalette = await require('./format_palette_e2e.cjs').verifyPalette(page, config);
     await page.locator('#format').selectOption('flac');
     assert.equal(await page.locator('#format').inputValue(), 'flac');
     assert.equal(await page.locator('#embedCover').isChecked(), true);
@@ -107,6 +108,7 @@ async function main() {
       pageErrors: errors,
       domScreenshot: config.domScreenshot,
       settings,
+      formatPalette,
     };
     fs.writeFileSync(config.report, JSON.stringify(report, null, 2));
     console.log(JSON.stringify(report));

@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from check_desktop_exe import ProcessAudit, Win32, assert_no_console, fetch_json, free_port
+from format_popup_capture import FormatPopupCapture
 from music_unlock.app_info import UPSTREAM_URL
 from music_unlock.branding import validate_branding
 from music_unlock.update_manager import UpdateManager
@@ -85,6 +86,22 @@ const modulePath=fs.readdirSync(cache).map(d=>path.join(cache,d,'node_modules/pl
                    check=True, timeout=45, creationflags=subprocess.CREATE_NO_WINDOW)
 
 
+def verify_installed_palette(cdp, win, audit, window, directory):
+    popup = FormatPopupCapture(win, audit, window, directory, prefix='updated-format')
+    configuration = directory / 'updated-palette-config.json'
+    output = directory / 'updated-palette.json'
+    configuration.write_text(json.dumps({'cdp': cdp, 'report': str(output),
+                                         'popupReady': str(popup.ready), 'popupCaptured': str(popup.captured)}), encoding='utf-8')
+    try:
+        subprocess.run(['node', str(ROOT / 'scripts/format_palette_e2e.cjs'), '--config', str(configuration)],
+                       check=True, timeout=45, creationflags=subprocess.CREATE_NO_WINDOW)
+        capture = popup.finish()
+        return {'computed': read_json(output), 'native_popup': capture}
+    finally:
+        popup.stop.set()
+        popup.thread.join(timeout=5)
+
+
 def verify(release_exe):
     assert os.name == 'nt'
     original = (git(ROOT, 'rev-parse', 'HEAD'), git(ROOT, 'symbolic-ref', '--short', 'HEAD'))
@@ -103,7 +120,19 @@ def verify(release_exe):
         git(ROOT, 'clone', '--branch', 'main', str(remote), str(upstream))
         probe = upstream / 'web/static/upstream-probe.js'
         probe.write_text('const upstreamProductLabel = "music-geshizhuanhuan";\n', encoding='utf-8')
+        hostile_palette = upstream / 'web/static/upstream-palette-probe.css'
+        hostile_css = ('@layer upstream { select#format, select#format option { background: white !important; '
+                       'color: white !important; -webkit-text-fill-color: white !important; '
+                       'color-scheme: light !important; } }\n')
+        hostile_palette.write_text(hostile_css, encoding='utf-8')
+        upstream_index = upstream / 'web/static/index.html'
+        text = upstream_index.read_text(encoding='utf-8')
+        assert text.count('/* 开关 */') == 1
+        # Change an original upstream CSS section, away from local head/header
+        # customizations, so this remains a genuine conflict-free Git merge.
+        upstream_index.write_text(text.replace('/* 开关 */', hostile_css + '\n  /* 开关 */', 1), encoding='utf-8')
         git(upstream, 'add', 'web/static/upstream-probe.js')
+        git(upstream, 'add', 'web/static/upstream-palette-probe.css', 'web/static/index.html')
         git(upstream, 'commit', '-m', 'Controlled local source update fixture')
         latest = git(upstream, 'rev-parse', 'HEAD')
         git(remote, 'fetch', str(upstream), 'HEAD:refs/heads/main')
@@ -192,6 +221,7 @@ def verify(release_exe):
         assert report['activated_health']['source_revision'] == candidate['prepared_head']
         assert report['activated_health']['upstream_revision'] == latest
         assert report['activated_health']['desktop_ready'] is True
+        report['updated_palette'] = verify_installed_palette(cdp, win, audit, windows[0], directory)
         win.screenshot(windows[0]['hwnd'], directory / 'updated-native-window.png', desktop=True)
         win.close(windows[0]['hwnd'])
         deadline = time.monotonic() + 20
